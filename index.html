@@ -1095,8 +1095,8 @@
     </div>
 
     <!-- 非表示の画像入力インプット -->
-    <input type="file" id="tweetFileInput" accept="image/*" style="display:none;" onchange="handleTweetImageSelect(event)">
-    <input type="file" id="replyFileInput" accept="image/*" style="display:none;" onchange="handleReplyImageSelect(event)">
+   <input type="file" id="tweetFileInput" accept="image/*" multiple style="display:none;" onchange="handleTweetImageSelect(event)">
+   <input type="file" id="replyFileInput" accept="image/*" multiple style="display:none;" onchange="handleReplyImageSelect(event)">
 
     <!-- 2. 検索 -->
     <div id="view-search" class="view">
@@ -1301,8 +1301,8 @@
     let activeReplyTargetTweet = null;
 
     // 投稿・リプライ添付用一時画像データ
-    let currentTweetImage = '';
-    let currentReplyImage = '';
+    let currentTweetImages = [];
+    let currentReplyImages = [];
 
     // カレンダー状態管理
     let calCurrentYear = new Date().getFullYear();
@@ -1425,116 +1425,137 @@
       document.getElementById('replyFileInput').click();
     }
 
-    function handleTweetImageSelect(e) {
-      const file = e.target.files[0];
-      if (!file) return;
+   function handleTweetImageSelect(e) {
+  const files = Array.from(e.target.files);
+  if (!files.length) return;
 
-      const reader = new FileReader();
-      reader.onload = function(evt) {
-        currentTweetImage = evt.target.result;
+  const remainingSlots = 4 - currentTweetImages.length;
+  const filesToProcess = files.slice(0, remainingSlots);
+
+  let loadedCount = 0;
+  filesToProcess.forEach(file => {
+    const reader = new FileReader();
+    reader.onload = function(evt) {
+      currentTweetImages.push(evt.target.result);
+      loadedCount++;
+      if (loadedCount === filesToProcess.length) {
         renderTweetImagePreview();
-      };
-      reader.readAsDataURL(file);
-      e.target.value = '';
-    }
+      }
+    };
+    reader.readAsDataURL(file);
+  });
+  e.target.value = '';
+}
 
-    function handleReplyImageSelect(e) {
-      const file = e.target.files[0];
-      if (!file) return;
+function handleReplyImageSelect(e) {
+  const files = Array.from(e.target.files);
+  if (!files.length) return;
 
-      const reader = new FileReader();
-      reader.onload = function(evt) {
-        currentReplyImage = evt.target.result;
+  const remainingSlots = 4 - currentReplyImages.length;
+  const filesToProcess = files.slice(0, remainingSlots);
+
+  let loadedCount = 0;
+  filesToProcess.forEach(file => {
+    const reader = new FileReader();
+    reader.onload = function(evt) {
+      currentReplyImages.push(evt.target.result);
+      loadedCount++;
+      if (loadedCount === filesToProcess.length) {
         renderReplyImagePreview();
-      };
-      reader.readAsDataURL(file);
-      e.target.value = '';
-    }
+      }
+    };
+    reader.readAsDataURL(file);
+  });
+  e.target.value = '';
+}
 
     function renderTweetImagePreview() {
-      const container = document.getElementById('tweetImagePreviewArea');
-      if (!currentTweetImage) {
-        container.style.display = 'none';
-        container.innerHTML = '';
-        return;
-      }
-      container.style.display = 'block';
-      container.innerHTML = `
-        <div class="image-preview-container">
-          <img src="${currentTweetImage}" alt="preview">
-          <button class="btn-remove-preview" onclick="removeTweetImage()">
-            <svg viewBox="0 0 24 24"><path d="M13.41 12l4.3-4.29c.39-.39.39-1.02 0-1.41-.39-.39-1.02-.39-1.41 0L12 10.59l-4.29-4.3c-.39-.39-1.02-.39-1.41 0-.39.39-.39 1.02 0 1.41L10.59 12l-4.3 4.29c-.39.39-.39 1.02 0 1.41.2.2.45.29.71.29s.51-.1.71-.29L12 13.41l4.29 4.3c.2.2.45.29.71.29s.51-.1.71-.29c.39-.39.39-1.02 0-1.41L13.41 12z"/></svg>
-          </button>
+  const container = document.getElementById('tweetImagePreviewArea');
+  if (currentTweetImages.length === 0) {
+    container.style.display = 'none';
+    container.innerHTML = '';
+    return;
+  }
+  container.style.display = 'block';
+  container.innerHTML = `
+    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
+      ${currentTweetImages.map((imgSrc, idx) => `
+        <div class="image-preview-container" style="position:relative;">
+          <img src="${imgSrc}" style="max-height:100px; border-radius:12px;">
+          <button class="btn-remove-preview" onclick="removeTweetImage(${idx})">×</button>
         </div>
-      `;
-    }
+      `).join('')}
+    </div>
+  `;
+}
 
-    function renderReplyImagePreview() {
-      const container = document.getElementById('replyImagePreviewArea');
-      if (!currentReplyImage) {
-        container.style.display = 'none';
-        container.innerHTML = '';
-        return;
-      }
-      container.style.display = 'block';
-      container.innerHTML = `
-        <div class="image-preview-container">
-          <img src="${currentReplyImage}" alt="preview">
-          <button class="btn-remove-preview" onclick="removeReplyImage()">
-            <svg viewBox="0 0 24 24"><path d="M13.41 12l4.3-4.29c.39-.39.39-1.02 0-1.41-.39-.39-1.02-.39-1.41 0L12 10.59l-4.29-4.3c-.39-.39-1.02-.39-1.41 0-.39.39-.39 1.02 0 1.41L10.59 12l-4.3 4.29c-.39.39-.39 1.02 0 1.41.2.2.45.29.71.29s.51-.1.71-.29L12 13.41l4.29 4.3c.2.2.45.29.71.29s.51-.1.71-.29c.39-.39.39-1.02 0-1.41L13.41 12z"/></svg>
-          </button>
+function renderReplyImagePreview() {
+  const container = document.getElementById('replyImagePreviewArea');
+  if (currentReplyImages.length === 0) {
+    container.style.display = 'none';
+    container.innerHTML = '';
+    return;
+  }
+  container.style.display = 'block';
+  container.innerHTML = `
+    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
+      ${currentReplyImages.map((imgSrc, idx) => `
+        <div class="image-preview-container" style="position:relative;">
+          <img src="${imgSrc}" style="max-height:100px; border-radius:12px;">
+          <button class="btn-remove-preview" onclick="removeReplyImage(${idx})">×</button>
         </div>
-      `;
-    }
+      `).join('')}
+    </div>
+  `;
+}
 
-    function removeTweetImage() {
-      currentTweetImage = '';
-      renderTweetImagePreview();
-    }
+function removeTweetImage(index) {
+  currentTweetImages.splice(index, 1);
+  renderTweetImagePreview();
+}
 
-    function removeReplyImage() {
-      currentReplyImage = '';
-      renderReplyImagePreview();
-    }
+function removeReplyImage(index) {
+  currentReplyImages.splice(index, 1);
+  renderReplyImagePreview();
+}
+   function addTweet() {
+  const textarea = document.getElementById('tweetInput');
+  const text = textarea.value.trim();
+  if (!text && currentTweetImages.length === 0) return;
 
-    function addTweet() {
-      const textarea = document.getElementById('tweetInput');
-      const text = textarea.value.trim();
-      if (!text && !currentTweetImage) return;
+  const now = new Date();
+  const timeStr = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
 
-      const now = new Date();
-      const timeStr = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+  const tweetData = {
+    text: text,
+    images: currentTweetImages,
+    time: timeStr,
+    createdAt: now.getTime(),
+    userName: currentUser.name,
+    userHandle: currentUser.handle,
+    userAvatar: currentUser.avatar,
+    parentId: null,
+    likeCount: 0,
+    retweetCount: 0,
+    replyCount: 0,
+    isLiked: false,
+    isRetweeted: false,
+    isBookmarked: false,
+    views: 1,
+    retweetedAt: null
+  };
 
-      const tweetData = {
-        text: text,
-        image: currentTweetImage,
-        time: timeStr,
-        createdAt: now.getTime(),
-        userName: currentUser.name,
-        userHandle: currentUser.handle,
-        userAvatar: currentUser.avatar,
-        parentId: null,
-        likeCount: 0,
-        retweetCount: 0,
-        replyCount: 0,
-        isLiked: false,
-        isRetweeted: false,
-        isBookmarked: false,
-        views: 1,
-        retweetedAt: null
-      };
+  const tx = db.transaction(['tweets'], 'readwrite');
+  const store = tx.objectStore('tweets');
+  const addRequest = store.add(tweetData);
 
-      const tx = db.transaction(['tweets'], 'readwrite');
-      const store = tx.objectStore('tweets');
-      const addRequest = store.add(tweetData);
-
-      addRequest.onsuccess = function(e) {
-        textarea.value = '';
-        currentTweetImage = '';
-        renderTweetImagePreview();
-        loadTweets();
-      };
-    }
+  addRequest.onsuccess = function(e) {
+    textarea.value = '';
+    currentTweetImages = [];
+    renderTweetImagePreview();
+    loadTweets();
+  };
+}
 
     function loadTweets() {
       const timeline = document.getElementById('timeline');
@@ -1606,9 +1627,19 @@
       const rtClass = tweet.isRetweeted ? 'retweeted' : '';
       const bmClass = tweet.isBookmarked ? 'bookmarked' : '';
 
-      const imageHTML = tweet.image 
-        ? `<div class="tweet-attached-image" onclick="openImageModal(event, '${tweet.image}')"><img src="${tweet.image}" alt="tweet media"></div>` 
-        : '';
+      const imgs = tweet.images || (tweet.image ? [tweet.image] : []);
+let imageHTML = '';
+
+if (imgs.length > 0) {
+  const gridCols = imgs.length === 1 ? '1fr' : '1fr 1fr';
+  imageHTML = `
+    <div class="tweet-attached-image-grid" style="display:grid; grid-template-columns:${gridCols}; gap:4px; margin-top:10px; border-radius:16px; overflow:hidden;">
+      ${imgs.map(img => `
+        <img src="${img}" style="width:100\%; max-height:200px; object-fit:cover; cursor:pointer;" onclick="openImageModal(event, '${img}')">
+      `).join('')}
+    </div>
+  `;
+}
 
       card.innerHTML = `
         <div class="avatar-column">
@@ -1741,67 +1772,67 @@
     }
 
     function openReplyModal(id) {
-      const tx = db.transaction(['tweets'], 'readonly');
-      const store = tx.objectStore('tweets');
-      const req = store.get(id);
-      req.onsuccess = function() {
-        activeReplyTargetTweet = req.result;
-        if (!activeReplyTargetTweet) return;
+  const tx = db.transaction(['tweets'], 'readonly');
+  const store = tx.objectStore('tweets');
+  const req = store.get(id);
+  req.onsuccess = function() {
+    activeReplyTargetTweet = req.result;
+    if (!activeReplyTargetTweet) return;
 
-        document.getElementById('replyTargetName').textContent = activeReplyTargetTweet.userName || currentUser.name;
-        document.getElementById('replyTargetHandle').textContent = activeReplyTargetTweet.userHandle || currentUser.handle;
-        document.getElementById('replyTargetText').textContent = activeReplyTargetTweet.text;
-        document.getElementById('replyTargetAvatar').innerHTML = getAvatarHTML(activeReplyTargetTweet.userAvatar);
+    document.getElementById('replyTargetName').textContent = activeReplyTargetTweet.userName || currentUser.name;
+    document.getElementById('replyTargetHandle').textContent = activeReplyTargetTweet.userHandle || currentUser.handle;
+    document.getElementById('replyTargetText').textContent = activeReplyTargetTweet.text;
+    document.getElementById('replyTargetAvatar').innerHTML = getAvatarHTML(activeReplyTargetTweet.userAvatar);
 
-        document.getElementById('replyInput').value = '';
-        currentReplyImage = '';
-        renderReplyImagePreview();
-        document.getElementById('replyModal').classList.add('show');
-      };
-    }
+    document.getElementById('replyInput').value = '';
+    currentReplyImages = [];
+    renderReplyImagePreview();
+    document.getElementById('replyModal').classList.add('show');
+  };
+}
 
-    function closeReplyModal() {
-      document.getElementById('replyModal').classList.remove('show');
-      activeReplyTargetTweet = null;
-      currentReplyImage = '';
-      renderReplyImagePreview();
-    }
+function closeReplyModal() {
+  document.getElementById('replyModal').classList.remove('show');
+  activeReplyTargetTweet = null;
+  currentReplyImages = [];
+  renderReplyImagePreview();
+}
 
-    function submitReply() {
-      const text = document.getElementById('replyInput').value.trim();
-      if (!text && !currentReplyImage) return;
-      if (!activeReplyTargetTweet) return;
+function submitReply() {
+  const text = document.getElementById('replyInput').value.trim();
+  if (!text && currentReplyImages.length === 0) return;
+  if (!activeReplyTargetTweet) return;
 
-      const now = new Date();
-      const timeStr = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+  const now = new Date();
+  const timeStr = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
 
-      const replyData = {
-        text: text,
-        image: currentReplyImage,
-        time: timeStr,
-        createdAt: now.getTime(),
-        userName: currentUser.name,
-        userHandle: currentUser.handle,
-        userAvatar: currentUser.avatar,
-        parentId: activeReplyTargetTweet.id,
-        likeCount: 0,
-        retweetCount: 0,
-        replyCount: 0,
-        isLiked: false,
-        isRetweeted: false,
-        isBookmarked: false,
-        views: 1
-      };
+  const replyData = {
+    text: text,
+    images: currentReplyImages,
+    time: timeStr,
+    createdAt: now.getTime(),
+    userName: currentUser.name,
+    userHandle: currentUser.handle,
+    userAvatar: currentUser.avatar,
+    parentId: activeReplyTargetTweet.id,
+    likeCount: 0,
+    retweetCount: 0,
+    replyCount: 0,
+    isLiked: false,
+    isRetweeted: false,
+    isBookmarked: false,
+    views: 1
+  };
 
-      const tx = db.transaction(['tweets'], 'readwrite');
-      const store = tx.objectStore('tweets');
-      store.add(replyData);
+  const tx = db.transaction(['tweets'], 'readwrite');
+  const store = tx.objectStore('tweets');
+  store.add(replyData);
 
-      tx.oncomplete = function() {
-        closeReplyModal();
-        refreshCurrentView();
-      };
-    }
+  tx.oncomplete = function() {
+    closeReplyModal();
+    refreshCurrentView();
+  };
+}
 
     /* カレンダー画面のロジック */
     let allCalendarTweets = [];
@@ -2059,38 +2090,43 @@
 
     /* メディア画面の描写処理 */
     function renderMediaView() {
-      if (!db) return;
+  if (!db) return;
 
-      const tx = db.transaction(['tweets'], 'readonly');
-      const store = tx.objectStore('tweets');
-      const getAllReq = store.getAll();
+  const tx = db.transaction(['tweets'], 'readonly');
+  const store = tx.objectStore('tweets');
+  const getAllReq = store.getAll();
 
-      getAllReq.onsuccess = function() {
-        const tweets = getAllReq.result;
-        tweets.sort((a, b) => b.createdAt - a.createdAt);
+  getAllReq.onsuccess = function() {
+    const tweets = getAllReq.result;
+    tweets.sort((a, b) => b.createdAt - a.createdAt);
 
-        const mediaTweets = tweets.filter(t => t.image);
-        const grid = document.getElementById('mediaGrid');
-        grid.innerHTML = '';
+    const grid = document.getElementById('mediaGrid');
+    grid.innerHTML = '';
 
-        if (mediaTweets.length === 0) {
-          grid.innerHTML = `
-            <div class="empty-state" style="grid-column: span 3;">
-              <svg viewBox="0 0 24 24"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
-              <div>まだ画像付きの投稿がありませんわ</div>
-            </div>`;
-          return;
-        }
+    let allImages = [];
+    tweets.forEach(t => {
+      const imgs = t.images || (t.image ? [t.image] : []);
+      imgs.forEach(img => allImages.push(img));
+    });
 
-        mediaTweets.forEach(t => {
-          const item = document.createElement('div');
-          item.className = 'media-grid-item';
-          item.innerHTML = `<img src="${t.image}" alt="media">`;
-          item.onclick = () => openImageModal(null, t.image);
-          grid.appendChild(item);
-        });
-      };
+    if (allImages.length === 0) {
+      grid.innerHTML = `
+        <div class="empty-state" style="grid-column: span 3;">
+          <svg viewBox="0 0 24 24"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
+          <div>まだ画像付きの投稿がありませんわ</div>
+        </div>`;
+      return;
     }
+
+    allImages.forEach(imgSrc => {
+      const item = document.createElement('div');
+      item.className = 'media-grid-item';
+      item.innerHTML = `<img src="${imgSrc}" alt="media">`;
+      item.onclick = () => openImageModal(null, imgSrc);
+      grid.appendChild(item);
+    });
+  };
+}
 
     /* タグ管理モーダル処理 */
     function openTagManageModal() {
