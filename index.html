@@ -2,8 +2,8 @@
 <html lang="ja">
 <head>
   <link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#000000">
-<link rel="apple-touch-icon" href="icon-192.png">
+  <meta name="theme-color" content="#000000">
+  <link rel="apple-touch-icon" href="icon-192.png">
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>My X</title>
@@ -60,12 +60,16 @@
       display: flex;
     }
 
-    /* タイムライン */
+    /* タイムライン＆固定つぶやき投稿欄 */
     .post-box {
       padding: 16px;
       border-bottom: 1px solid rgba(255, 255, 255, 0.1);
       display: flex;
       gap: 12px;
+      position: sticky;
+      top: 45px; /* ヘッダーの直下に固定 */
+      background-color: #000000;
+      z-index: 9;
     }
     .avatar {
       width: 40px;
@@ -237,6 +241,7 @@
       gap: 12px;
       position: relative;
       transition: background-color 0.2s;
+      cursor: pointer;
     }
     .tweet-card:hover {
       background-color: rgba(255, 255, 255, 0.03);
@@ -766,6 +771,57 @@
       transition: background-color 0.2s;
     }
 
+    /* 画像拡大（ライトボックス）モーダル */
+    .image-modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background-color: rgba(0, 0, 0, 0.9);
+      z-index: 400;
+      justify-content: center;
+      align-items: center;
+      padding: 16px;
+    }
+    .image-modal.show {
+      display: flex;
+    }
+    .image-modal img {
+      max-width: 100%;
+      max-height: 90vh;
+      object-fit: contain;
+      border-radius: 8px;
+    }
+
+    /* ツイート詳細表示モーダル */
+    .detail-modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background-color: rgba(0, 0, 0, 0.85);
+      backdrop-filter: blur(12px);
+      z-index: 240;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      padding: 20px 16px;
+      overflow-y: auto;
+    }
+    .detail-modal.show {
+      display: flex;
+    }
+    .detail-modal-container {
+      width: 100%;
+      max-width: 550px;
+      background-color: #000000;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 16px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-top: 20px;
+    }
+
     .page-content {
       padding: 16px;
     }
@@ -1144,7 +1200,7 @@
             <div class="reply-target-text" id="replyTargetText">親投稿テキスト</div>
           </div>
         </div>
-        <div class="post-box" style="border-bottom:none; padding:8px 0 0 0;">
+        <div class="post-box" style="border-bottom:none; padding:8px 0 0 0; position:static;">
           <div class="avatar my-avatar-container"></div>
           <div class="post-input-area">
             <textarea id="replyInput" placeholder="返信をつぶやく"></textarea>
@@ -1175,6 +1231,22 @@
       </div>
     </div>
 
+    <!-- 画像拡大（ライトボックス）モーダル -->
+    <div class="image-modal" id="imageModal" onclick="closeImageModal()">
+      <img id="imageModalImg" src="" alt="enlarged">
+    </div>
+
+    <!-- ツイート詳細（単体スレッド表示）モーダル -->
+    <div class="detail-modal" id="detailModal" onclick="closeDetailModal(event)">
+      <div class="detail-modal-container" onclick="event.stopPropagation()">
+        <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:10px;">
+          <span style="font-weight:700; font-size:15px;">つぶやき詳細</span>
+          <button class="btn-crop-cancel" style="padding:4px 12px; font-size:12px; border-radius:12px; flex:none;" onclick="closeDetailModalDirect()">閉じる</button>
+        </div>
+        <div id="detailModalContent"></div>
+      </div>
+    </div>
+
     <!-- トリミング用モダール -->
     <div class="crop-modal" id="cropModal">
       <div class="crop-container">
@@ -1184,7 +1256,7 @@
         <div class="zoom-slider-container">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
           <input type="range" class="zoom-slider" id="zoomSlider" min="1" max="3" step="0.05" value="1" oninput="onZoomChange()">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14zm-1-7h2v2h-2V7zm0 4h2v2h-2v-2z"/></svg>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 14zm-1-7h2v2h-2V7zm0 4h2v2h-2v-2z"/></svg>
         </div>
         <div class="crop-actions">
           <button class="btn-crop-cancel" onclick="closeCropModal()">キャンセル</button>
@@ -1199,7 +1271,7 @@
         <svg viewBox="0 0 24 24"><path d="M12 3l9 8h-3v10h-5v-6h-2v6H5V11H2l9-8z"/></svg>
       </button>
       <button class="nav-item" onclick="switchTab('search', '検索', this)">
-        <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+        <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 14z"/></svg>
       </button>
       <button class="nav-item" onclick="switchTab('calendar', 'カレンダー', this)">
         <svg viewBox="0 0 24 24"><path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zm0-12H5V6h14v2z"/></svg>
@@ -1523,6 +1595,7 @@
       const card = document.createElement('div');
       card.className = 'tweet-card';
       card.dataset.id = tweet.id;
+      card.onclick = () => openDetailModal(tweet.id);
       
       const name = tweet.userName || currentUser.name;
       const handle = tweet.userHandle || currentUser.handle;
@@ -1533,7 +1606,9 @@
       const rtClass = tweet.isRetweeted ? 'retweeted' : '';
       const bmClass = tweet.isBookmarked ? 'bookmarked' : '';
 
-      const imageHTML = tweet.image ? `<div class="tweet-attached-image"><img src="${tweet.image}" alt="tweet media"></div>` : '';
+      const imageHTML = tweet.image 
+        ? `<div class="tweet-attached-image" onclick="openImageModal(event, '${tweet.image}')"><img src="${tweet.image}" alt="tweet media"></div>` 
+        : '';
 
       card.innerHTML = `
         <div class="avatar-column">
@@ -1546,11 +1621,11 @@
             <span class="user-handle">${escapeHtml(handle)}</span>
             <span class="tweet-time">· ${tweet.time}</span>
             <div class="menu-container">
-              <button class="btn-menu" onclick="toggleMenu(event, ${tweet.id})">
+              <button class="btn-menu" onclick="event.stopPropagation(); toggleMenu(event, ${tweet.id})">
                 <svg viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
               </button>
               <div class="dropdown-menu" id="menu-${tweet.id}">
-                <div class="dropdown-item" onclick="deleteTweet(${tweet.id})">
+                <div class="dropdown-item" onclick="event.stopPropagation(); deleteTweet(${tweet.id})">
                   <svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
                   削除
                 </div>
@@ -1561,26 +1636,26 @@
           ${imageHTML}
 
           <div class="tweet-action-bar">
-            <button class="action-btn" onclick="openReplyModal(${tweet.id})">
+            <button class="action-btn" onclick="event.stopPropagation(); openReplyModal(${tweet.id})">
               <svg viewBox="0 0 24 24"><path d="M1.751 10c0-4.42 3.584-8 8.005-8h4.366c4.49 0 8.129 3.64 8.129 8.13 0 2.96-1.607 5.59-4 7.01v3.58c0 .53-.58.86-1.03.58l-3.23-1.94c-.74.17-1.52.26-2.33.26h-1.93c-4.42 0-8.005-3.58-8.005-8z"/></svg>
               <span>${tweet.replyCount || ''}</span>
             </button>
-            <button class="action-btn ${rtClass}" onclick="toggleRetweet(${tweet.id})">
+            <button class="action-btn ${rtClass}" onclick="event.stopPropagation(); toggleRetweet(${tweet.id})">
               <svg viewBox="0 0 24 24"><path d="M4.5 3.88l4.42 4.42-1.41 1.41L5.5 7.71V15c0 1.66 1.34 3 3 3h7v2h-7c-2.76 0-5-2.24-5-5V7.71L1.49 9.71.08 8.3 4.5 3.88zM19.5 20.12l-4.42-4.42 1.41-1.41 2.01 2.01V9c0-1.66-1.34-3-3-3h-7V4h7c2.76 0 5 2.24 5 5v7.3l2.01-2.01 1.41 1.41-4.42 4.42z"/></svg>
               <span>${tweet.retweetCount || ''}</span>
             </button>
-            <button class="action-btn ${likeClass}" onclick="toggleLike(${tweet.id})">
+            <button class="action-btn ${likeClass}" onclick="event.stopPropagation(); toggleLike(${tweet.id})">
               <svg viewBox="0 0 24 24"><path d="M12 21.638h-.014C9.403 21.59 1.95 14.851 1.95 8.478 1.95 5.172 4.628 2.5 7.934 2.5c1.882 0 3.639.879 4.766 2.309C13.827 3.379 15.584 2.5 17.466 2.5c3.306 0 5.984 2.672 5.984 5.978 0 6.373-7.453 13.112-10.036 13.16H12z"/></svg>
               <span>${tweet.likeCount || ''}</span>
             </button>
-            <button class="action-btn">
+            <button class="action-btn" onclick="event.stopPropagation();">
               <svg viewBox="0 0 24 24"><path d="M8.75 21V3h2v18h-2zM18.75 21V8.5h2V21h-2zM3.75 21v-6h2v6h-2zM13.75 21v-11h2v11h-2z"/></svg>
               <span>${tweet.views || 1}</span>
             </button>
-            <button class="action-btn ${bmClass}" onclick="toggleBookmark(${tweet.id})">
+            <button class="action-btn ${bmClass}" onclick="event.stopPropagation(); toggleBookmark(${tweet.id})">
               <svg viewBox="0 0 24 24"><path d="M4 4.5C4 3.12 5.119 2 6.5 2h11C18.881 2 20 3.12 20 4.5v16.86c0 .58-.62.95-1.12.65L12 17.8l-6.88 4.21c-.5.3-.12-.07-1.12-.65V4.5z"/></svg>
             </button>
-            <button class="action-btn" onclick="shareTweet('${escapeHtml(tweet.text)}')">
+            <button class="action-btn" onclick="event.stopPropagation(); shareTweet('${escapeHtml(tweet.text)}')">
               <svg viewBox="0 0 24 24"><path d="M12 2.59l5.7 5.7-1.41 1.42L13 6.41V16h-2V6.41L7.71 9.71 6.3 8.29 12 2.59zM21 15v5c0 1.1-.9 2-2 2H5c-1.1 0-2-.9-2-2v-5h2v5h14v-5h2z"/></svg>
             </button>
           </div>
@@ -2011,11 +2086,7 @@
           const item = document.createElement('div');
           item.className = 'media-grid-item';
           item.innerHTML = `<img src="${t.image}" alt="media">`;
-          item.onclick = () => {
-            // タップで該当ツイートまで移動・ホームタブで表示
-            const homeBtn = document.querySelectorAll('.nav-item')[0];
-            switchTab('home', 'ホーム', homeBtn);
-          };
+          item.onclick = () => openImageModal(null, t.image);
           grid.appendChild(item);
         });
       };
@@ -2285,12 +2356,69 @@
       renderAllAvatars();
       closeCropModal();
     }
+
+    /* 画像拡大モーダル制御 */
+    function openImageModal(event, src) {
+      if (event) event.stopPropagation();
+      document.getElementById('imageModalImg').src = src;
+      document.getElementById('imageModal').classList.add('show');
+    }
+
+    function closeImageModal() {
+      document.getElementById('imageModal').classList.remove('show');
+    }
+
+    /* ツイート詳細（単体スレッド表示）モーダル制御 */
+    function openDetailModal(id) {
+      const tx = db.transaction(['tweets'], 'readonly');
+      const store = tx.objectStore('tweets');
+      const getAllReq = store.getAll();
+
+      getAllReq.onsuccess = function() {
+        const tweets = getAllReq.result;
+        const target = tweets.find(t => t.id === id);
+        if (!target) return;
+
+        const content = document.getElementById('detailModalContent');
+        content.innerHTML = '';
+
+        // 親投稿があればそれも上に表示
+        if (target.parentId) {
+          const parent = tweets.find(t => t.id === target.parentId);
+          if (parent) {
+            content.appendChild(createTweetCard(parent, true));
+          }
+        }
+
+        // メイン投稿を表示
+        content.appendChild(createTweetCard(target, false));
+
+        // 返信スレッド（子投稿）があれば下に表示
+        const replies = tweets.filter(t => t.parentId === target.id).sort((a, b) => a.createdAt - b.createdAt);
+        replies.forEach(r => {
+          content.appendChild(createTweetCard(r, false));
+        });
+
+        document.getElementById('detailModal').classList.add('show');
+      };
+    }
+
+    function closeDetailModal(event) {
+      if (event.target.id === 'detailModal') {
+        document.getElementById('detailModal').classList.remove('show');
+      }
+    }
+
+    function closeDetailModalDirect() {
+      document.getElementById('detailModal').classList.remove('show');
+    }
+
     // Service Workerの登録
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js');
-  });
-}
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js');
+      });
+    }
   </script>
 </body>
 </html>
