@@ -1917,6 +1917,8 @@
         renderTagsView();
       } else if (document.getElementById('view-media').classList.contains('active')) {
         renderMediaView();
+      } else if (document.getElementById('view-search').classList.contains('active')) {
+        performSearch();
       } else {
         loadTweets();
       }
@@ -2128,11 +2130,15 @@
       }
     }
 
-    /* 検索処理 */
+    /* 検索処理 (未入力時は全件表示せずスッキリ表示) */
     function performSearch() {
       const query = document.getElementById('searchInput').value.trim().toLowerCase();
       const resultsContainer = document.getElementById('searchResults');
       resultsContainer.innerHTML = '';
+
+      if (!query) {
+        return;
+      }
 
       if (!db) return;
 
@@ -2144,15 +2150,12 @@
         let tweets = getAllReq.result;
         tweets.sort((a, b) => b.createdAt - a.createdAt);
 
-        const filtered = tweets.filter(t => {
-          if (!query) return true;
-          return t.text.toLowerCase().includes(query);
-        });
+        const filtered = tweets.filter(t => t.text.toLowerCase().includes(query));
 
         if (filtered.length === 0) {
           resultsContainer.innerHTML = `
             <div class="empty-state">
-              <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+              <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 14z"/></svg>
               <div>該当するつぶやきが見つかりませんでしたわ</div>
             </div>`;
         } else {
@@ -2246,7 +2249,7 @@
       };
     }
 
-    /* メディア画面の描写処理 */
+    /* メディア画面の描写処理 (クリック時に該当のつぶやき詳細を開く) */
     function renderMediaView() {
       if (!db) return;
 
@@ -2261,13 +2264,15 @@
         const grid = document.getElementById('mediaGrid');
         grid.innerHTML = '';
 
-        let allImages = [];
+        let allMediaItems = [];
         tweets.forEach(t => {
           const imgs = t.images || (t.image ? [t.image] : []);
-          imgs.forEach(img => allImages.push(img));
+          imgs.forEach(img => {
+            allMediaItems.push({ img: img, tweetId: t.id });
+          });
         });
 
-        if (allImages.length === 0) {
+        if (allMediaItems.length === 0) {
           grid.innerHTML = `
             <div class="empty-state" style="grid-column: span 3;">
               <svg viewBox="0 0 24 24"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
@@ -2276,11 +2281,11 @@
           return;
         }
 
-        allImages.forEach(imgSrc => {
+        allMediaItems.forEach(itemData => {
           const item = document.createElement('div');
           item.className = 'media-grid-item';
-          item.innerHTML = `<img src="${imgSrc}" alt="media">`;
-          item.onclick = () => openImageModal(null, imgSrc);
+          item.innerHTML = `<img src="${itemData.img}" alt="media">`;
+          item.onclick = () => openDetailModal(itemData.tweetId);
           grid.appendChild(item);
         });
       };
