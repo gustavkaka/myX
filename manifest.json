@@ -3,7 +3,7 @@
   "name": "My X",
   "short_name": "My X",
   "description": "Private Twitter-like Diary App",
-  "start_url": "./index.html",
+  "start_url": "./",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#000000",
