@@ -195,22 +195,6 @@
       background-color: rgba(15, 20, 25, 0.9);
     }
 
-    /* ツイートカード内画像 */
-    .tweet-attached-image {
-      margin-top: 10px;
-      border-radius: 16px;
-      overflow: hidden;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      max-height: 380px;
-    }
-    .tweet-attached-image img {
-      width: 100%;
-      height: 100%;
-      max-height: 380px;
-      object-fit: cover;
-      display: block;
-    }
-
     /* ツイートカード＆ツリー構造 */
     .tweet-card-wrapper {
       border-bottom: 1px solid rgba(255, 255, 255, 0.1);
@@ -241,6 +225,19 @@
     .tweet-card:hover {
       background-color: rgba(255, 255, 255, 0.03);
     }
+
+    /* メイン表示用のツイート（詳細画面内） */
+    .tweet-card.main-target-tweet {
+      background-color: rgba(29, 155, 240, 0.05);
+      border-left: 3px solid #1d9bf0;
+      padding-top: 16px;
+      padding-bottom: 16px;
+    }
+    .tweet-card.main-target-tweet .tweet-text {
+      font-size: 17px;
+      line-height: 1.6;
+    }
+
     .avatar-column {
       display: flex;
       flex-direction: column;
@@ -264,6 +261,7 @@
       gap: 6px;
       align-items: center;
       margin-bottom: 4px;
+      flex-wrap: wrap;
     }
     .user-name {
       font-weight: 700;
@@ -275,7 +273,7 @@
     }
     .user-handle, .tweet-time {
       color: #71767b;
-      font-size: 14px;
+      font-size: 13px;
       flex-shrink: 0;
     }
     .tweet-text {
@@ -787,7 +785,7 @@
       border-radius: 8px;
     }
 
-    /* ツイート詳細表示モーダル */
+    /* ツイート詳細（スレッド表示）モーダル */
     .detail-modal {
       display: none;
       position: fixed;
@@ -806,7 +804,7 @@
     }
     .detail-modal-container {
       width: 100%;
-      max-width: 550px;
+      max-width: 580px;
       background-color: #000000;
       border: 1px solid rgba(255, 255, 255, 0.15);
       border-radius: 16px;
@@ -814,7 +812,13 @@
       display: flex;
       flex-direction: column;
       gap: 12px;
-      margin-top: 20px;
+      margin-top: 10px;
+      margin-bottom: 40px;
+    }
+
+    /* スレッド階層インデント */
+    .nested-reply-wrapper {
+      position: relative;
     }
 
     .page-content {
@@ -1287,11 +1291,11 @@
       <img id="imageModalImg" src="" alt="enlarged">
     </div>
 
-    <!-- ツイート詳細（単体スレッド表示）モーダル -->
+    <!-- ツイート詳細（スレッド表示）モーダル -->
     <div class="detail-modal" id="detailModal" onclick="closeDetailModal(event)">
       <div class="detail-modal-container" onclick="event.stopPropagation()">
-        <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:10px;">
-          <span style="font-weight:700; font-size:15px;">つぶやき詳細</span>
+        <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:10px; margin-bottom: 8px;">
+          <span style="font-weight:700; font-size:16px;">会話・スレッド</span>
           <button class="btn-crop-cancel" style="padding:4px 12px; font-size:12px; border-radius:12px; flex:none;" onclick="closeDetailModalDirect()">閉じる</button>
         </div>
         <div id="detailModalContent"></div>
@@ -1365,6 +1369,18 @@
     function getAvatarHTML(avatarData) {
       const src = avatarData || currentUser.avatar;
       return src ? `<img src="${src}" alt="avatar">` : defaultAvatarSVG;
+    }
+
+    /* 日付＋時刻フォーマット関数（リワーク追加） */
+    function formatTweetDate(timestamp, timeFallback) {
+      if (!timestamp) return timeFallback || '';
+      const d = new Date(timestamp);
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const date = String(d.getDate()).padStart(2, '0');
+      const hours = String(d.getHours()).padStart(2, '0');
+      const minutes = String(d.getMinutes()).padStart(2, '0');
+      return `${year}/${month}/${date} ${hours}:${minutes}`;
     }
 
     function renderAllAvatars() {
@@ -1770,9 +1786,9 @@
       };
     }
 
-    function createTweetCard(tweet, hasThreadLine) {
+    function createTweetCard(tweet, hasThreadLine, isMainTarget = false) {
       const card = document.createElement('div');
-      card.className = 'tweet-card';
+      card.className = `tweet-card ${isMainTarget ? 'main-target-tweet' : ''}`;
       card.dataset.id = tweet.id;
       card.onclick = () => openDetailModal(tweet.id);
       
@@ -1780,6 +1796,7 @@
       const handle = tweet.userHandle || currentUser.handle;
       const avatarHTML = getAvatarHTML(tweet.userAvatar);
       const formattedText = formatTweetText(tweet.text);
+      const displayDateStr = formatTweetDate(tweet.createdAt, tweet.time);
 
       const likeClass = tweet.isLiked ? 'liked' : '';
       const rtClass = tweet.isRetweeted ? 'retweeted' : '';
@@ -1808,7 +1825,7 @@
           <div class="tweet-header">
             <span class="user-name">${escapeHtml(name)}</span>
             <span class="user-handle">${escapeHtml(handle)}</span>
-            <span class="tweet-time">· ${tweet.time}</span>
+            <span class="tweet-time">· ${displayDateStr}</span>
             <div class="menu-container">
               <button class="btn-menu" onclick="event.stopPropagation(); toggleMenu(event, ${tweet.id})">
                 <svg viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
@@ -1911,6 +1928,10 @@
     }
 
     function refreshCurrentView() {
+      if (document.getElementById('detailModal').classList.contains('show')) {
+        const activeDetailId = parseInt(document.querySelector('.tweet-card.main-target-tweet')?.dataset.id);
+        if (activeDetailId) openDetailModal(activeDetailId);
+      }
       if (document.getElementById('view-calendar').classList.contains('active')) {
         renderCalendarTimeline();
       } else if (document.getElementById('view-tags').classList.contains('active')) {
@@ -2130,16 +2151,13 @@
       }
     }
 
-    /* 検索処理 (未入力時は全件表示せずスッキリ表示) */
+    /* 検索処理 */
     function performSearch() {
       const query = document.getElementById('searchInput').value.trim().toLowerCase();
       const resultsContainer = document.getElementById('searchResults');
       resultsContainer.innerHTML = '';
 
-      if (!query) {
-        return;
-      }
-
+      if (!query) return;
       if (!db) return;
 
       const tx = db.transaction(['tweets'], 'readonly');
@@ -2155,7 +2173,7 @@
         if (filtered.length === 0) {
           resultsContainer.innerHTML = `
             <div class="empty-state">
-              <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 14z"/></svg>
+              <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
               <div>該当するつぶやきが見つかりませんでしたわ</div>
             </div>`;
         } else {
@@ -2249,7 +2267,7 @@
       };
     }
 
-    /* メディア画面の描写処理 (クリック時に該当のつぶやき詳細を開く) */
+    /* メディア画面の描写処理 */
     function renderMediaView() {
       if (!db) return;
 
@@ -2422,7 +2440,7 @@
       });
     }
 
-    /* アバター画像選択・自由なドラッグ＆トリミング機能 */
+    /* アバター画像選択・トリミング機能 */
     let loadedImage = null;
     let cropScale = 1;
     let cropPosX = 0;
@@ -2479,7 +2497,6 @@
 
       ctx.drawImage(loadedImage, cropPosX, cropPosY, w, h);
 
-      // マスク（外側を暗く、円枠を青色描画）
       ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
       ctx.beginPath();
       ctx.rect(0, 0, canvas.width, canvas.height);
@@ -2585,7 +2602,53 @@
       document.getElementById('imageModal').classList.remove('show');
     }
 
-    /* ツイート詳細（単体スレッド表示）モーダル制御 */
+    /* --------------------------------------------------------------------- */
+    /* ★ リワーク：スレッド全階層表示ロジック (祖先＆子孫・再帰展開) ★ */
+    /* --------------------------------------------------------------------- */
+
+    // 1. 親・祖父母など「祖先ツイート」を最古順（ルート〜親）で辿る関数
+    function getAncestors(targetId, allTweets) {
+      const ancestors = [];
+      let current = allTweets.find(t => t.id === targetId);
+      while (current && current.parentId) {
+        const parent = allTweets.find(t => t.id === current.parentId);
+        if (parent) {
+          ancestors.unshift(parent); // ルートから順に並ぶよう先頭へ追加
+          current = parent;
+        } else {
+          break;
+        }
+      }
+      return ancestors;
+    }
+
+    // 2. 子リプライ・孫リプライなどの「子孫スレッド」を再帰的にレンダリングする関数
+    function renderDescendantThread(parentId, allTweets, container, level = 0) {
+      const replies = allTweets.filter(t => t.parentId === parentId).sort((a, b) => a.createdAt - b.createdAt);
+      
+      replies.forEach((reply) => {
+        const hasChildren = allTweets.some(t => t.parentId === reply.id);
+        const wrapper = document.createElement('div');
+        wrapper.className = 'nested-reply-wrapper';
+        
+        // 階層（インデント）を少しずらしてスレッド感を表現
+        if (level > 0) {
+          wrapper.style.paddingLeft = `${Math.min(level * 14, 42)}px`;
+          wrapper.style.borderLeft = '2px solid rgba(255, 255, 255, 0.08)';
+        }
+
+        const card = createTweetCard(reply, hasChildren);
+        wrapper.appendChild(card);
+        container.appendChild(wrapper);
+
+        // 孫・ひ孫リプライが存在する場合、再帰的に読み込んで展開
+        if (hasChildren) {
+          renderDescendantThread(reply.id, allTweets, container, level + 1);
+        }
+      });
+    }
+
+    // 3. スレッド表示モーダルの構築・開く処理
     function openDetailModal(id) {
       const tx = db.transaction(['tweets'], 'readonly');
       const store = tx.objectStore('tweets');
@@ -2599,19 +2662,22 @@
         const content = document.getElementById('detailModalContent');
         content.innerHTML = '';
 
-        if (target.parentId) {
-          const parent = tweets.find(t => t.id === target.parentId);
-          if (parent) {
-            content.appendChild(createTweetCard(parent, true));
-          }
-        }
-
-        content.appendChild(createTweetCard(target, false));
-
-        const replies = tweets.filter(t => t.parentId === target.id).sort((a, b) => a.createdAt - b.createdAt);
-        replies.forEach(r => {
-          content.appendChild(createTweetCard(r, false));
+        // ① 上の「祖先スレッド（親、祖父など）」を順番に描画
+        const ancestors = getAncestors(target.id, tweets);
+        ancestors.forEach((anc) => {
+          content.appendChild(createTweetCard(anc, true)); // 縦スレッド線ありで繋ぐ
         });
+
+        // ② タップされた「メインツイート」の描画（強調表示）
+        const hasDirectChildren = tweets.some(t => t.parentId === target.id);
+        const mainCard = createTweetCard(target, hasDirectChildren, true);
+        content.appendChild(mainCard);
+
+        // ③ 下の「子孫スレッド（リプライ・孫リプライなど）」を再帰的に全て描画
+        const descendantsContainer = document.createElement('div');
+        descendantsContainer.style.marginTop = '8px';
+        renderDescendantThread(target.id, tweets, descendantsContainer, 0);
+        content.appendChild(descendantsContainer);
 
         document.getElementById('detailModal').classList.add('show');
       };
