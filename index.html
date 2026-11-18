@@ -1,3 +1,71 @@
+const CACHE_NAME = 'lyric-collection-v7'; // ★更新時はここを v5, v6 と上げていきます
+
+// アプリの動作に必須のもの：どれか失敗したらインストール自体を失敗扱いにする
+const CORE_ASSETS = [
+  './',
+  './index.html',
+  './manifest.json',
+  './icon-192.png',
+  './icon-512.png'
+];
+
+// 無くてもアプリは動くもの：1個失敗しても全体を巻き込まないよう、個別にキャッシュする
+const OPTIONAL_ASSETS = [
+  './start1.wav',
+  './start2.wav',
+  './start3.wav',
+  './start4.wav',
+  './start5.wav'
+];
+
+// インストール時：必須をキャッシュ ＋ 即座に適用準備。任意ファイルは失敗を無視する
+self.addEventListener('install', (event) => {
+  self.skipWaiting();
+  event.waitUntil(
+    caches.open(CACHE_NAME).then(async (cache) => {
+      await cache.addAll(CORE_ASSETS);
+      await Promise.allSettled(
+        OPTIONAL_ASSETS.map((url) => cache.add(url))
+      );
+    })
+  );
+});
+
+// アクティベート時：古いキャッシュの自動削除 ＋ 画面の制御開始
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys().then((keys) => {
+      return Promise.all(
+        keys.map((key) => {
+          if (key !== CACHE_NAME) {
+            return caches.delete(key);
+          }
+        })
+      );
+    }).then(() => self.clients.claim())
+  );
+});
+
+// ネットワーク優先（Network First）戦略：常に最新を取得し、オフライン時のみキャッシュを利用
+self.addEventListener('fetch', (event) => {
+  if (event.request.method !== 'GET') return;
+
+  event.respondWith(
+    fetch(event.request)
+      .then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200) {
+          const responseToCache = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, responseToCache);
+          });
+        }
+        return networkResponse;
+      })
+      .catch(() => {
+        return caches.match(event.request);
+      })
+  );
+});
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -8,1107 +76,279 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>My X</title>
   <style>
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      background-color: #000000;
-      color: #e7e9ea;
+      background-color: #000000; color: #e7e9ea;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      display: flex;
-      justify-content: center;
-      min-height: 100vh;
+      display: flex; justify-content: center; min-height: 100vh;
     }
     .container {
-      width: 100%;
-      max-width: 600px;
-      border-left: 1px solid rgba(255, 255, 255, 0.1);
-      border-right: 1px solid rgba(255, 255, 255, 0.1);
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      padding-bottom: 60px;
-      position: relative;
+      width: 100%; max-width: 600px;
+      border-left: 1px solid rgba(255,255,255,0.1); border-right: 1px solid rgba(255,255,255,0.1);
+      min-height: 100vh; display: flex; flex-direction: column;
+      padding-bottom: 60px; position: relative;
     }
     header {
-      position: sticky;
-      top: 0;
-      background-color: rgba(0, 0, 0, 0.85);
-      backdrop-filter: blur(12px);
-      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-      padding: 12px 16px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      z-index: 10;
+      position: sticky; top: 0; background-color: rgba(0,0,0,0.85);
+      backdrop-filter: blur(12px); border-bottom: 1px solid rgba(255,255,255,0.1);
+      padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; z-index: 10;
     }
-    header h1 {
-      font-size: 18px;
-      font-weight: 700;
-      letter-spacing: -0.3px;
-    }
+    header h1 { font-size: 18px; font-weight: 700; letter-spacing: -0.3px; cursor: pointer; }
+    .view { display: none; flex: 1; flex-direction: column; }
+    .view.active { display: flex; }
 
-    /* 画面切り替え */
-    .view {
-      display: none;
-      flex: 1;
-      flex-direction: column;
-    }
-    .view.active {
-      display: flex;
-    }
-
-    /* タイムライン＆固定つぶやき投稿欄 */
+    /* 投稿欄 */
     .post-box {
-      padding: 16px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-      display: flex;
-      gap: 12px;
-      position: sticky;
-      top: 45px; /* ヘッダーの直下に固定 */
-      background-color: #000000;
-      z-index: 9;
+      padding: 16px; border-bottom: 1px solid rgba(255,255,255,0.1);
+      display: flex; gap: 12px; position: sticky; top: 45px;
+      background-color: #000000; z-index: 9;
     }
+    .post-box.static { position: static; border-bottom: none; padding: 8px 0 0 0; }
     .avatar {
-      width: 40px;
-      height: 40px;
-      border-radius: 50%;
-      background-color: #202327;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
-      overflow: hidden;
-      border: 1px solid rgba(255, 255, 255, 0.1);
+      width: 40px; height: 40px; border-radius: 50%; background-color: #202327;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; overflow: hidden; border: 1px solid rgba(255,255,255,0.1);
     }
-    .avatar svg {
-      width: 22px;
-      height: 22px;
-      fill: #71767b;
-    }
-    .avatar img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-    }
-    .post-input-area {
-      flex: 1;
-    }
+    .avatar svg { width: 22px; height: 22px; fill: #71767b; }
+    .avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .post-input-area { flex: 1; min-width: 0; }
     textarea {
-      width: 100%;
-      background: transparent;
-      border: none;
-      color: #e7e9ea;
-      font-size: 16px;
-      resize: none;
-      outline: none;
-      min-height: 70px;
-      font-family: inherit;
+      width: 100%; background: transparent; border: none; color: #e7e9ea;
+      font-size: 16px; resize: none; outline: none; min-height: 70px; font-family: inherit;
     }
-    textarea::placeholder {
-      color: #71767b;
-    }
+    textarea::placeholder { color: #71767b; }
     .post-actions {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      border-top: 1px solid rgba(255, 255, 255, 0.05);
-      padding-top: 10px;
+      display: flex; justify-content: space-between; align-items: center;
+      border-top: 1px solid rgba(255,255,255,0.05); padding-top: 10px;
     }
     .btn-media-attach {
-      background: none;
-      border: none;
-      color: #1d9bf0;
-      cursor: pointer;
-      padding: 6px;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      background: none; border: none; color: #1d9bf0; cursor: pointer; padding: 6px;
+      border-radius: 50%; display: flex; align-items: center; justify-content: center;
       transition: background-color 0.2s;
     }
-    .btn-media-attach:hover {
-      background-color: rgba(29, 155, 240, 0.1);
-    }
-    .btn-media-attach svg {
-      width: 20px;
-      height: 20px;
-      fill: currentColor;
-    }
+    .btn-media-attach:hover { background-color: rgba(29,155,240,0.1); }
+    .btn-media-attach svg { width: 20px; height: 20px; fill: currentColor; }
     .btn-submit {
-      background-color: #1d9bf0;
-      color: white;
-      border: none;
-      padding: 8px 18px;
-      border-radius: 20px;
-      font-weight: 700;
-      font-size: 14px;
-      cursor: pointer;
+      background-color: #1d9bf0; color: white; border: none; padding: 8px 18px;
+      border-radius: 20px; font-weight: 700; font-size: 14px; cursor: pointer;
       transition: transform 0.1s ease, background-color 0.2s;
     }
-    .btn-submit:active {
-      transform: scale(0.95);
-      background-color: #1a8cd8;
-    }
-    .timeline {
-      flex: 1;
+    .btn-submit:active { transform: scale(0.95); background-color: #1a8cd8; }
+    .btn-cancel {
+      background: none; border: 1px solid rgba(255,255,255,0.25); color: #e7e9ea;
+      padding: 6px 16px; border-radius: 16px; font-size: 13px; cursor: pointer;
     }
 
-    /* 添付画像プレビュー */
+    /* 画像プレビュー */
+    .preview-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
     .image-preview-container {
-      position: relative;
-      margin-top: 8px;
-      margin-bottom: 8px;
-      max-width: 100%;
-      border-radius: 16px;
-      overflow: hidden;
-      display: inline-block;
-      border: 1px solid rgba(255, 255, 255, 0.15);
+      position: relative; border-radius: 12px; overflow: hidden;
+      border: 1px solid rgba(255,255,255,0.15);
     }
-    .image-preview-container img {
-      max-height: 200px;
-      width: auto;
-      max-width: 100%;
-      display: block;
-      object-fit: cover;
-    }
+    .image-preview-container img { max-height: 100px; width: auto; max-width: 100%; display: block; object-fit: cover; }
     .btn-remove-preview {
-      position: absolute;
-      top: 6px;
-      right: 6px;
-      background-color: rgba(15, 20, 25, 0.75);
-      color: #ffffff;
-      border: none;
-      border-radius: 50%;
-      width: 26px;
-      height: 26px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      backdrop-filter: blur(4px);
-      transition: background-color 0.2s;
-    }
-    .btn-remove-preview:hover {
-      background-color: rgba(15, 20, 25, 0.9);
+      position: absolute; top: 6px; right: 6px; background-color: rgba(15,20,25,0.75);
+      color: #fff; border: none; border-radius: 50%; width: 26px; height: 26px;
+      display: flex; align-items: center; justify-content: center; cursor: pointer;
+      backdrop-filter: blur(4px); font-size: 14px; line-height: 1;
     }
 
-    /* ツイートカード＆ツリー構造 */
-    .tweet-card-wrapper {
-      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-      position: relative;
-    }
+    /* ツイートカード */
+    .timeline { flex: 1; }
+    .tweet-card-wrapper { border-bottom: 1px solid rgba(255,255,255,0.1); position: relative; }
     .retweet-header-label {
-      padding: 8px 16px 0 48px;
-      font-size: 13px;
-      font-weight: 700;
-      color: #71767b;
-      display: flex;
-      align-items: center;
-      gap: 6px;
+      padding: 8px 16px 0 48px; font-size: 13px; font-weight: 700; color: #71767b;
+      display: flex; align-items: center; gap: 6px;
     }
-    .retweet-header-label svg {
-      width: 14px;
-      height: 14px;
-      fill: currentColor;
-    }
+    .retweet-header-label svg { width: 14px; height: 14px; fill: currentColor; }
     .tweet-card {
-      padding: 12px 16px;
-      display: flex;
-      gap: 12px;
-      position: relative;
-      transition: background-color 0.2s;
-      cursor: pointer;
+      padding: 12px 16px; display: flex; gap: 12px; position: relative;
+      transition: background-color 0.2s; cursor: pointer;
     }
-    .tweet-card:hover {
-      background-color: rgba(255, 255, 255, 0.03);
-    }
-
-    /* メイン表示用のツイート（詳細画面内） */
+    .tweet-card:hover { background-color: rgba(255,255,255,0.03); }
     .tweet-card.main-target-tweet {
-      background-color: rgba(29, 155, 240, 0.05);
-      border-left: 3px solid #1d9bf0;
-      padding-top: 16px;
-      padding-bottom: 16px;
+      background-color: rgba(29,155,240,0.05); border-left: 3px solid #1d9bf0;
+      padding-top: 16px; padding-bottom: 16px;
     }
-    .tweet-card.main-target-tweet .tweet-text {
-      font-size: 17px;
-      line-height: 1.6;
-    }
-
-    .avatar-column {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      flex-shrink: 0;
-    }
-    .thread-line {
-      width: 2px;
-      background-color: #333639;
-      flex: 1;
-      margin-top: 6px;
-      margin-bottom: -12px;
-    }
-    .tweet-content {
-      flex: 1;
-      position: relative;
-      min-width: 0;
-    }
-    .tweet-header {
-      display: flex;
-      gap: 6px;
-      align-items: center;
-      margin-bottom: 4px;
-      flex-wrap: wrap;
-    }
-    .user-name {
-      font-weight: 700;
-      color: #f7f9f9;
-      font-size: 15px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .user-handle, .tweet-time {
-      color: #71767b;
-      font-size: 13px;
-      flex-shrink: 0;
-    }
-    .tweet-text {
-      font-size: 15px;
-      line-height: 1.5;
-      white-space: pre-wrap;
-      word-break: break-word;
-      color: #e7e9ea;
-      margin-bottom: 6px;
-    }
-
-    /* アクションバー */
-    .tweet-action-bar {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      max-width: 420px;
-      margin-top: 8px;
-      color: #71767b;
+    .tweet-card.main-target-tweet .tweet-text { font-size: 17px; line-height: 1.6; }
+    .avatar-column { display: flex; flex-direction: column; align-items: center; flex-shrink: 0; }
+    .thread-line { width: 2px; background-color: #333639; flex: 1; min-height: 12px; margin-top: 4px; }
+    .tweet-body { flex: 1; min-width: 0; }
+    .tweet-header { display: flex; align-items: center; gap: 6px; }
+    .user-name { font-weight: 700; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .user-handle, .tweet-date { color: #71767b; font-size: 14px; white-space: nowrap; }
+    .tweet-date { margin-left: auto; font-size: 12px; }
+    .tweet-text { font-size: 15px; line-height: 1.5; margin-top: 2px; white-space: pre-wrap; word-break: break-word; }
+    .hashtag { color: #1d9bf0; cursor: pointer; }
+    .hashtag:hover { text-decoration: underline; }
+    .tweet-images { display: grid; gap: 4px; margin-top: 10px; border-radius: 16px; overflow: hidden; }
+    .tweet-images.count-1 { grid-template-columns: 1fr; }
+    .tweet-images.count-2, .tweet-images.count-3, .tweet-images.count-4 { grid-template-columns: 1fr 1fr; }
+    .tweet-images img { width: 100%; height: 180px; object-fit: cover; display: block; cursor: pointer; }
+    .tweet-images.count-1 img { height: auto; max-height: 320px; }
+    .tweet-actions-row {
+      display: flex; justify-content: space-between; max-width: 340px; margin-top: 10px;
     }
     .action-btn {
-      background: none;
-      border: none;
-      color: inherit;
-      display: flex;
-      align-items: center;
-      gap: 5px;
-      font-size: 13px;
-      cursor: pointer;
-      padding: 4px;
-      border-radius: 50%;
-      transition: color 0.2s;
+      background: none; border: none; color: #71767b; cursor: pointer;
+      display: flex; align-items: center; gap: 4px; font-size: 13px; padding: 4px;
+      border-radius: 9999px; transition: color 0.2s, background-color 0.2s;
     }
-    .action-btn svg {
-      width: 18px;
-      height: 18px;
-      fill: currentColor;
-    }
-    .action-btn:hover {
-      color: #1d9bf0;
-    }
-    .action-btn.retweeted {
-      color: #00ba7c;
-    }
-    .action-btn.liked {
-      color: #f91880;
-    }
-    .action-btn.liked svg {
-      fill: #f91880;
-    }
-    .action-btn.bookmarked {
-      color: #1d9bf0;
-    }
-
-    /* ハッシュタグのスタイル */
-    .hashtag {
-      color: #1d9bf0;
-      cursor: pointer;
-      font-weight: 500;
-    }
-    .hashtag:hover {
-      text-decoration: underline;
-    }
-
-    /* 三点リーダー＆ドロップダウンメニュー */
-    .menu-container {
-      position: relative;
-      margin-left: auto;
-    }
+    .action-btn svg { width: 18px; height: 18px; fill: currentColor; }
+    .action-btn:hover { color: #1d9bf0; background-color: rgba(29,155,240,0.1); }
+    .action-btn.liked { color: #f91880; }
+    .action-btn.liked:hover { background-color: rgba(249,24,128,0.1); }
+    .action-btn.retweeted { color: #00ba7c; }
+    .action-btn.retweeted:hover { background-color: rgba(0,186,124,0.1); }
+    .action-btn.bookmarked { color: #1d9bf0; }
+    .menu-wrap { position: relative; flex-shrink: 0; }
     .btn-menu {
-      background: none;
-      border: none;
-      color: #71767b;
-      cursor: pointer;
-      padding: 6px;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: background-color 0.2s, color 0.2s;
+      background: none; border: none; color: #71767b; cursor: pointer; padding: 4px 8px;
+      border-radius: 9999px; font-size: 16px; line-height: 1;
     }
-    .btn-menu svg {
-      width: 18px;
-      height: 18px;
-      fill: currentColor;
-    }
-    .btn-menu:hover {
-      background-color: rgba(29, 155, 240, 0.1);
-      color: #1d9bf0;
-    }
+    .btn-menu:hover { color: #1d9bf0; background-color: rgba(29,155,240,0.1); }
     .dropdown-menu {
-      display: none;
-      position: absolute;
-      right: 0;
-      top: 28px;
-      background-color: #000000;
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      border-radius: 12px;
-      box-shadow: 0 4px 16px rgba(255, 255, 255, 0.1);
-      z-index: 20;
-      min-width: 140px;
-      overflow: hidden;
+      display: none; position: absolute; right: 0; top: 28px; z-index: 30;
+      background-color: #000; border: 1px solid rgba(255,255,255,0.15); border-radius: 12px;
+      box-shadow: 0 0 15px rgba(255,255,255,0.15); min-width: 150px; overflow: hidden;
     }
-    .dropdown-menu.show {
-      display: block;
-    }
-    .dropdown-item {
-      padding: 12px 16px;
-      color: #f4212e;
-      cursor: pointer;
-      font-size: 14px;
-      font-weight: 700;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      transition: background-color 0.2s;
-    }
-    .dropdown-item svg {
-      width: 16px;
-      height: 16px;
-      fill: #f4212e;
-    }
-    .dropdown-item:hover {
-      background-color: rgba(244, 33, 46, 0.1);
-    }
+    .dropdown-menu.show { display: block; }
+    .dropdown-item { padding: 12px 16px; font-size: 14px; cursor: pointer; display: flex; gap: 8px; align-items: center; }
+    .dropdown-item:hover { background-color: rgba(255,255,255,0.05); }
+    .dropdown-item.danger { color: #f4212e; }
+    .nested-reply-wrapper { border-left: 2px solid rgba(255,255,255,0.08); }
+    .empty-state { padding: 48px 24px; text-align: center; color: #71767b; font-size: 14px; line-height: 1.7; }
 
-    /* 検索画面スタイル */
-    .search-box-area {
-      padding: 16px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    }
-    .search-input-container {
-      position: relative;
-      display: flex;
-      align-items: center;
-    }
+    /* 検索 */
+    .search-box-area { padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+    .search-input-container { position: relative; }
     .search-icon-inside {
-      position: absolute;
-      left: 14px;
-      width: 18px;
-      height: 18px;
-      fill: #71767b;
-      pointer-events: none;
+      position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+      width: 18px; height: 18px; fill: #71767b; pointer-events: none;
     }
     .search-input {
-      width: 100%;
-      padding: 12px 16px 12px 42px;
-      background-color: #202327;
-      border: 1px solid transparent;
-      border-radius: 24px;
-      color: #f7f9f9;
-      font-size: 15px;
-      outline: none;
-      font-family: inherit;
+      width: 100%; background-color: #202327; border: 1px solid transparent; border-radius: 9999px;
+      padding: 12px 16px 12px 44px; color: #e7e9ea; font-size: 15px; outline: none;
     }
-    .search-input:focus {
-      border-color: #1d9bf0;
-      background-color: #000000;
-    }
+    .search-input:focus { background-color: #000; border-color: #1d9bf0; }
 
-    /* カレンダー画面スタイル */
-    .calendar-container {
-      padding: 16px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    }
-    .calendar-stats-card {
-      background: linear-gradient(135deg, rgba(29, 155, 240, 0.15) 0%, rgba(0, 0, 0, 0.4) 100%);
-      border: 1px solid rgba(29, 155, 240, 0.3);
-      border-radius: 16px;
-      padding: 16px 20px;
-      margin-bottom: 16px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-    .calendar-stats-label {
-      font-size: 13px;
-      color: #71767b;
-      font-weight: 600;
-    }
-    .calendar-stats-num {
-      font-size: 28px;
-      font-weight: 800;
-      color: #1d9bf0;
-      line-height: 1;
-      margin-top: 4px;
-    }
-    .calendar-stats-unit {
-      font-size: 14px;
-      color: #f7f9f9;
-      margin-left: 4px;
-      font-weight: 500;
-    }
-    .calendar-header-nav {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 14px;
-    }
-    .calendar-month-title {
-      font-size: 16px;
-      font-weight: 700;
-      color: #f7f9f9;
-    }
-    .btn-cal-nav {
-      background: #202327;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      color: #f7f9f9;
-      width: 32px;
-      height: 32px;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      transition: background-color 0.2s;
-    }
-    .btn-cal-nav:hover {
-      background-color: #2f3336;
-    }
-    .calendar-grid {
-      display: grid;
-      grid-template-columns: repeat(7, 1fr);
-      gap: 6px;
-      text-align: center;
-    }
-    .cal-weekday {
-      font-size: 12px;
-      font-weight: 700;
-      color: #71767b;
-      padding-bottom: 6px;
-    }
-    .cal-day-cell {
-      aspect-ratio: 1;
-      border-radius: 12px;
-      background-color: rgba(255, 255, 255, 0.03);
-      border: 1px solid transparent;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      position: relative;
-      transition: all 0.2s;
-    }
-    .cal-day-cell.empty {
-      background: transparent;
-      cursor: default;
-    }
-    .cal-day-number {
-      font-size: 14px;
-      font-weight: 600;
-      color: #e7e9ea;
-    }
-    .cal-day-cell.has-tweets {
-      background-color: rgba(29, 155, 240, 0.1);
-      border-color: rgba(29, 155, 240, 0.25);
-    }
-    .cal-day-badge {
-      width: 5px;
-      height: 5px;
-      border-radius: 50%;
-      background-color: #1d9bf0;
-      margin-top: 3px;
-    }
-    .cal-day-cell.selected {
-      border-color: #1d9bf0 !important;
-      background-color: rgba(29, 155, 240, 0.25) !important;
-    }
-    .cal-day-cell.selected .cal-day-number {
-      color: #ffffff;
-      font-weight: 800;
-    }
-    .selected-date-title {
-      padding: 12px 16px 8px 16px;
-      font-size: 14px;
-      font-weight: 700;
-      color: #71767b;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-    }
-
-    /* タグ画面スタイル */
+    /* タグ */
     .tag-header-area {
-      display: flex;
-      align-items: center;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-      padding-right: 8px;
+      display: flex; align-items: flex-start; gap: 8px; padding: 12px 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
     }
-    .tag-list-bar {
-      display: flex;
-      gap: 8px;
-      overflow-x: auto;
-      padding: 12px 16px;
-      flex: 1;
-      scrollbar-width: none;
-    }
-    .tag-list-bar::-webkit-scrollbar {
-      display: none;
-    }
-    .btn-manage-tags {
-      background: none;
-      border: none;
-      color: #71767b;
-      cursor: pointer;
-      padding: 8px;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
-      transition: color 0.2s, background-color 0.2s;
-    }
-    .btn-manage-tags svg {
-      width: 20px;
-      height: 20px;
-      fill: currentColor;
-    }
-    .btn-manage-tags:hover {
-      color: #1d9bf0;
-      background-color: rgba(29, 155, 240, 0.1);
-    }
+    .tag-list-bar { display: flex; flex-wrap: wrap; gap: 8px; flex: 1; }
     .tag-pill {
-      background-color: #202327;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 20px;
-      padding: 6px 14px;
-      font-size: 13px;
-      color: #71767b;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      white-space: nowrap;
-      transition: all 0.2s;
-      flex-shrink: 0;
-      user-select: none;
+      background-color: #202327; border: 1px solid rgba(255,255,255,0.08); color: #e7e9ea;
+      border-radius: 9999px; padding: 7px 14px; font-size: 14px; cursor: pointer;
+      display: inline-flex; gap: 6px; align-items: baseline;
     }
-    .tag-pill-name {
-      max-width: 90px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .tag-pill-count {
-      font-size: 11px;
-      opacity: 0.6;
-      flex-shrink: 0;
-    }
-    .tag-pill.active {
-      background-color: #1d9bf0;
-      color: #ffffff;
-      border-color: #1d9bf0;
-      font-weight: 700;
-    }
+    .tag-pill .tag-count { color: #71767b; font-size: 12px; }
+    .tag-pill.active { background-color: #1d9bf0; border-color: #1d9bf0; color: #fff; }
+    .tag-pill.active .tag-count { color: rgba(255,255,255,0.8); }
 
-    /* メディア一覧グリッド */
-    .media-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 4px;
-      padding: 4px;
-    }
-    .media-grid-item {
-      aspect-ratio: 1;
-      overflow: hidden;
-      background-color: #202327;
-      cursor: pointer;
-      position: relative;
-    }
-    .media-grid-item img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      transition: transform 0.2s;
-    }
-    .media-grid-item:hover img {
-      transform: scale(1.05);
-    }
+    /* メディア */
+    .media-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; }
+    .media-item { aspect-ratio: 1; overflow: hidden; cursor: pointer; background-color: #202327; }
+    .media-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
-    /* モーダル群 */
-    .reply-modal {
-      display: none;
-      position: fixed;
-      inset: 0;
-      background-color: rgba(0, 0, 0, 0.85);
-      backdrop-filter: blur(12px);
-      z-index: 250;
-      flex-direction: column;
-      align-items: center;
-      justify-content: flex-start;
-      padding: 20px 16px;
-    }
-    .reply-modal.show {
-      display: flex;
-    }
-    .reply-modal-container {
-      width: 100%;
-      max-width: 550px;
-      background-color: #000000;
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      border-radius: 16px;
-      padding: 16px;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
-    }
-    .reply-target-preview {
-      display: flex;
-      gap: 12px;
-    }
-    .reply-target-line {
-      width: 2px;
-      background-color: #333639;
-      flex: 1;
-      margin-top: 4px;
-    }
-    .reply-target-text {
-      font-size: 14px;
-      color: #71767b;
-      margin-top: 4px;
-      word-break: break-word;
-    }
-
-    .tag-modal {
-      display: none;
-      position: fixed;
-      inset: 0;
-      background-color: rgba(0, 0, 0, 0.85);
-      backdrop-filter: blur(12px);
-      z-index: 300;
-      flex-direction: column;
-      align-items: center;
-      justify-content: flex-start;
-      padding: 20px 16px;
-    }
-    .tag-modal.show {
-      display: flex;
-    }
-    .tag-modal-container {
-      width: 100%;
-      max-width: 500px;
-      background-color: #0b0b0c;
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      border-radius: 16px;
-      display: flex;
-      flex-direction: column;
-      max-height: 80vh;
-      overflow: hidden;
-      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
-    }
-    .tag-modal-header {
-      padding: 16px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-    .tag-modal-title {
-      font-size: 16px;
-      font-weight: 700;
-      color: #f7f9f9;
-    }
-    .btn-tag-modal-close {
-      background: #1d9bf0;
-      border: none;
-      color: #ffffff;
-      padding: 6px 16px;
-      border-radius: 16px;
-      font-weight: 700;
-      font-size: 13px;
-      cursor: pointer;
-    }
-    .tag-modal-list {
-      flex: 1;
-      overflow-y: auto;
-      padding: 8px 0;
-    }
-    .tag-modal-item {
-      padding: 14px 16px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      user-select: none;
-      background-color: #0b0b0c;
-      transition: background-color 0.2s;
-    }
-
-    /* 画像拡大（ライトボックス）モーダル */
-    .image-modal {
-      display: none;
-      position: fixed;
-      inset: 0;
-      background-color: rgba(0, 0, 0, 0.9);
-      z-index: 400;
-      justify-content: center;
-      align-items: center;
-      padding: 16px;
-    }
-    .image-modal.show {
-      display: flex;
-    }
-    .image-modal img {
-      max-width: 100%;
-      max-height: 90vh;
-      object-fit: contain;
-      border-radius: 8px;
-    }
-
-    /* ツイート詳細（スレッド表示）モーダル */
-    .detail-modal {
-      display: none;
-      position: fixed;
-      inset: 0;
-      background-color: rgba(0, 0, 0, 0.85);
-      backdrop-filter: blur(12px);
-      z-index: 240;
-      flex-direction: column;
-      align-items: center;
-      justify-content: flex-start;
-      padding: 20px 16px;
-      overflow-y: auto;
-    }
-    .detail-modal.show {
-      display: flex;
-    }
-    .detail-modal-container {
-      width: 100%;
-      max-width: 580px;
-      background-color: #000000;
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      border-radius: 16px;
-      padding: 16px;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      margin-top: 10px;
-      margin-bottom: 40px;
-    }
-
-    /* スレッド階層インデント */
-    .nested-reply-wrapper {
-      position: relative;
-    }
-
-    .page-content {
-      padding: 16px;
-    }
-    .empty-state {
-      text-align: center;
-      color: #71767b;
-      margin-top: 60px;
-      padding-bottom: 40px;
-      font-size: 14px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 12px;
-    }
-    .empty-state svg {
-      width: 48px;
-      height: 48px;
-      fill: #333639;
-    }
-
-    /* 設定UI */
-    .profile-card {
-      background: linear-gradient(180deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0) 100%);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 16px;
-      padding: 20px;
-      margin-bottom: 24px;
-      display: flex;
-      align-items: center;
-      gap: 16px;
-    }
+    /* 設定 */
+    .page-content { padding: 16px; }
+    .profile-card { display: flex; align-items: center; gap: 16px; padding: 8px 0 20px; }
     .profile-avatar-large {
-      width: 64px;
-      height: 64px;
-      border-radius: 50%;
-      background-color: #202327;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      flex-shrink: 0;
-      cursor: pointer;
-      position: relative;
-      overflow: hidden;
-      transition: opacity 0.2s;
+      width: 72px; height: 72px; border-radius: 50%; overflow: hidden; position: relative;
+      background-color: #202327; cursor: pointer; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
     }
-    .profile-avatar-large:hover {
-      opacity: 0.85;
-    }
-    .profile-avatar-large svg {
-      width: 36px;
-      height: 36px;
-      fill: #71767b;
-    }
-    .profile-avatar-large img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-    }
+    .profile-avatar-large img { width: 100%; height: 100%; object-fit: cover; }
+    .profile-avatar-large svg { width: 38px; height: 38px; fill: #71767b; }
     .avatar-edit-badge {
-      position: absolute;
-      inset: 0;
-      background-color: rgba(0, 0, 0, 0.4);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      opacity: 0;
-      transition: opacity 0.2s;
+      position: absolute; right: 0; bottom: 0; background-color: #1d9bf0; border-radius: 50%;
+      width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;
     }
-    .profile-avatar-large:hover .avatar-edit-badge {
-      opacity: 1;
-    }
-    .avatar-edit-badge svg {
-      width: 20px;
-      height: 20px;
-      fill: #ffffff;
-    }
-    .profile-info {
-      flex: 1;
-    }
-    .profile-info-name {
-      font-size: 18px;
-      font-weight: 700;
-      color: #f7f9f9;
-    }
-    .profile-info-handle {
-      font-size: 14px;
-      color: #71767b;
-    }
-
-    .settings-section-title {
-      font-size: 13px;
-      font-weight: 700;
-      color: #71767b;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      margin: 0 0 10px 4px;
-    }
-
-    .settings-list {
-      background-color: #0b0b0c;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 16px;
-      overflow: hidden;
-      margin-bottom: 24px;
-    }
-    .settings-item {
-      padding: 14px 16px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-    }
-    .settings-item:last-child {
-      border-bottom: none;
-    }
-    .settings-item-label {
-      font-size: 12px;
-      color: #1d9bf0;
-      font-weight: 600;
-    }
-    .settings-item-input {
-      background: transparent;
-      border: none;
-      color: #f7f9f9;
-      font-size: 16px;
-      font-weight: 500;
-      outline: none;
-      width: 100%;
-      font-family: inherit;
-    }
-
-    /* バックアップ・復元ボタンUI */
+    .avatar-edit-badge svg { width: 13px; height: 13px; fill: #fff; }
+    .profile-info-name { font-size: 19px; font-weight: 800; }
+    .profile-info-handle { color: #71767b; font-size: 14px; }
+    .settings-section-title { font-size: 15px; font-weight: 700; margin: 18px 0 8px; }
+    .settings-list { border: 1px solid rgba(255,255,255,0.1); border-radius: 14px; overflow: hidden; }
+    .settings-item { padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+    .settings-item:last-child { border-bottom: none; }
+    .settings-item-label { display: block; font-size: 12px; color: #71767b; margin-bottom: 4px; }
+    .settings-item-input { width: 100%; background: none; border: none; color: #e7e9ea; font-size: 16px; outline: none; }
     .settings-item-btn {
-      padding: 14px 16px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      cursor: pointer;
-      transition: background-color 0.2s;
+      padding: 14px 16px; display: flex; align-items: center; justify-content: space-between;
+      cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.06);
     }
-    .settings-item-btn:last-child {
-      border-bottom: none;
-    }
-    .settings-item-btn:hover {
-      background-color: rgba(255, 255, 255, 0.03);
-    }
-    .settings-item-btn-text {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-    }
-    .settings-item-title {
-      font-size: 15px;
-      font-weight: 600;
-      color: #e7e9ea;
-    }
-    .settings-item-sub {
-      font-size: 12px;
-      color: #71767b;
-    }
-    .settings-item-btn svg {
-      width: 20px;
-      height: 20px;
-      fill: #71767b;
-      flex-shrink: 0;
-    }
+    .settings-item-btn:last-child { border-bottom: none; }
+    .settings-item-btn:hover { background-color: rgba(255,255,255,0.03); }
+    .settings-item-btn svg { width: 20px; height: 20px; fill: #71767b; flex-shrink: 0; }
+    .settings-item-title { display: block; font-size: 15px; }
+    .settings-item-sub { display: block; font-size: 12px; color: #71767b; margin-top: 2px; }
+    .settings-note { font-size: 12px; color: #71767b; line-height: 1.7; margin-top: 14px; }
 
-    /* 画像トリミング用モダール */
-    .crop-modal {
-      display: none;
-      position: fixed;
-      inset: 0;
-      background-color: rgba(0, 0, 0, 0.9);
-      z-index: 200;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
-      backdrop-filter: blur(10px);
+    /* モーダル共通 */
+    .modal {
+      display: none; position: fixed; inset: 0; z-index: 100;
+      background-color: rgba(91,112,131,0.4); align-items: flex-start; justify-content: center;
+      overflow-y: auto; padding: 24px 12px;
     }
-    .crop-modal.show {
-      display: flex;
+    .modal.show { display: flex; }
+    .modal-container {
+      background-color: #000; border-radius: 16px; width: 100%; max-width: 560px;
+      padding: 16px; border: 1px solid rgba(255,255,255,0.1);
     }
-    .crop-container {
-      width: 280px;
-      height: 280px;
-      position: relative;
-      overflow: hidden;
-      border-radius: 16px;
-      background-color: #111;
-      touch-action: none;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    .modal-header {
+      display: flex; justify-content: space-between; align-items: center;
+      border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px; margin-bottom: 8px;
     }
-    #cropCanvas {
-      width: 100%;
-      height: 100%;
-      cursor: move;
-    }
-    .crop-controls {
-      width: 280px;
-      margin-top: 20px;
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-    }
-    .zoom-slider-container {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      color: #71767b;
-    }
-    .zoom-slider {
-      flex: 1;
-      accent-color: #1d9bf0;
-    }
-    .crop-actions {
-      display: flex;
-      gap: 12px;
-    }
-    .btn-crop-cancel {
-      flex: 1;
-      padding: 12px;
-      background: rgba(255, 255, 255, 0.1);
-      border: none;
-      border-radius: 24px;
-      color: #f7f9f9;
-      font-weight: 700;
-      cursor: pointer;
-    }
-    .btn-crop-save {
-      flex: 1;
-      padding: 12px;
-      background: #1d9bf0;
-      border: none;
-      border-radius: 24px;
-      color: #ffffff;
-      font-weight: 700;
-      cursor: pointer;
-    }
+    .modal-title { font-weight: 700; font-size: 16px; }
+    .reply-target-preview { display: flex; gap: 12px; margin-bottom: 4px; }
+    .reply-target-line { width: 2px; background-color: #333639; flex: 1; min-height: 10px; margin-top: 4px; }
+    .reply-target-text { font-size: 14px; color: #cfd3d6; margin-top: 2px; white-space: pre-wrap; word-break: break-word; }
+    .image-modal { align-items: center; background-color: rgba(0,0,0,0.92); }
+    .image-modal img { max-width: 96vw; max-height: 92vh; border-radius: 8px; }
 
-    /* 下部ナビゲーション */
+    /* 確認シート＆トースト */
+    .confirm-sheet {
+      display: none; position: fixed; inset: 0; z-index: 200;
+      background-color: rgba(91,112,131,0.4); align-items: flex-end; justify-content: center;
+    }
+    .confirm-sheet.show { display: flex; }
+    .confirm-box {
+      background-color: #000; border: 1px solid rgba(255,255,255,0.15); border-radius: 18px 18px 0 0;
+      width: 100%; max-width: 600px; padding: 22px 18px 30px; text-align: center;
+    }
+    .confirm-message { font-size: 15px; line-height: 1.6; margin-bottom: 18px; white-space: pre-wrap; }
+    .confirm-buttons { display: flex; gap: 10px; }
+    .confirm-buttons button { flex: 1; padding: 12px; border-radius: 9999px; font-size: 15px; font-weight: 700; cursor: pointer; }
+    .btn-confirm-yes { background-color: #f4212e; color: #fff; border: none; }
+    .btn-confirm-yes.normal { background-color: #1d9bf0; }
+    .btn-confirm-no { background: none; color: #e7e9ea; border: 1px solid rgba(255,255,255,0.3); }
+    .toast {
+      position: fixed; left: 50%; bottom: 84px; transform: translateX(-50%) translateY(20px);
+      background-color: #1d9bf0; color: #fff; font-size: 14px; padding: 11px 18px; border-radius: 10px;
+      opacity: 0; pointer-events: none; transition: opacity 0.25s, transform 0.25s; z-index: 300;
+      max-width: 88vw; text-align: center; box-shadow: 0 4px 18px rgba(0,0,0,0.5);
+    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    /* 下部ナビ */
     .bottom-nav {
-      position: fixed;
-      bottom: 0;
-      width: 100%;
-      max-width: 600px;
-      background-color: rgba(0, 0, 0, 0.85);
-      backdrop-filter: blur(12px);
-      border-top: 1px solid rgba(255, 255, 255, 0.1);
-      display: flex;
-      justify-content: space-around;
-      align-items: center;
-      height: 56px;
-      z-index: 100;
+      position: fixed; bottom: 0; left: 50%; transform: translateX(-50%);
+      width: 100%; max-width: 600px; height: 56px;
+      background-color: rgba(0,0,0,0.9); backdrop-filter: blur(12px);
+      border-top: 1px solid rgba(255,255,255,0.1);
+      display: flex; justify-content: space-around; align-items: center; z-index: 50;
+      padding-bottom: env(safe-area-inset-bottom);
     }
-    .nav-item {
-      background: none;
-      border: none;
-      color: #71767b;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      width: 16.66%;
-      height: 100%;
-      transition: color 0.2s;
-    }
-    .nav-item svg {
-      width: 22px;
-      height: 22px;
-      fill: currentColor;
-    }
-    .nav-item.active {
-      color: #f7f9f9;
-    }
-    .nav-item.active svg {
-      fill: #f7f9f9;
-    }
+    .nav-item { background: none; border: none; cursor: pointer; padding: 10px; border-radius: 9999px; }
+    .nav-item svg { width: 24px; height: 24px; fill: #71767b; display: block; }
+    .nav-item.active svg { fill: #f7f9f9; }
   </style>
 </head>
 <body>
-
   <div class="container">
-    <header>
-      <h1 id="headerTitle">ホーム</h1>
-    </header>
+    <header><h1 id="headerTitle" data-action="go-home">ホーム</h1></header>
 
     <!-- 1. タイムライン -->
     <div id="view-home" class="view active">
@@ -1116,70 +356,37 @@
         <div class="avatar my-avatar-container"></div>
         <div class="post-input-area">
           <textarea id="tweetInput" placeholder="今なにしてる？"></textarea>
-          <!-- 投稿画像プレビュー表示域 -->
           <div id="tweetImagePreviewArea" style="display:none;"></div>
           <div class="post-actions">
-            <!-- 画像選択用ボタン -->
-            <button class="btn-media-attach" onclick="triggerTweetImageSelect()" title="画像を追加">
+            <button class="btn-media-attach" data-action="pick-images" data-kind="tweet" title="画像を追加">
               <svg viewBox="0 0 24 24"><path d="M19.75 2H4.25C3.01 2 2 3.01 2 4.25v15.5C2 20.99 3.01 22 4.25 22h15.5c1.24 0 2.25-1.01 2.25-2.25V4.25C22 3.01 20.99 2 19.75 2zM4.25 3.5h15.5c.41 0 .75.34.75.75v12.56l-3.52-3.52c-.73-.73-1.91-.73-2.65 0L10.5 17.17l-2.09-2.09c-.73-.73-1.91-.73-2.65 0L3.5 17.34V4.25c0-.41.34-.75.75-.75zm0 17c-.19 0-.36-.07-.49-.2l3.41-3.41c.15-.15.39-.15.53 0l2.09 2.09c.39.39 1.02.39 1.41 0l4.38-4.38c.15-.15.39-.15.53 0l3.92 3.92H4.25zM15.5 10c1.38 0 2.5-1.12 2.5-2.5S16.88 5 15.5 5 13 6.12 13 7.5s1.12 2.5 2.5 2.5zm0-3.5c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1z"/></svg>
             </button>
-            <button class="btn-submit" onclick="addTweet()">つぶやく</button>
+            <button class="btn-submit" data-action="submit-tweet">つぶやく</button>
           </div>
         </div>
       </div>
       <div class="timeline" id="timeline"></div>
     </div>
 
-    <!-- 非表示の画像入力インプット -->
-    <input type="file" id="tweetFileInput" accept="image/*" multiple style="display:none;" onchange="handleTweetImageSelect(event)">
-    <input type="file" id="replyFileInput" accept="image/*" multiple style="display:none;" onchange="handleReplyImageSelect(event)">
-
     <!-- 2. 検索 -->
     <div id="view-search" class="view">
       <div class="search-box-area">
         <div class="search-input-container">
           <svg class="search-icon-inside" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
-          <input type="text" id="searchInput" class="search-input" placeholder="キーワードや #タグ で検索" oninput="performSearch()">
+          <input type="text" id="searchInput" class="search-input" placeholder="キーワードや #タグ で検索">
         </div>
       </div>
       <div class="timeline" id="searchResults"></div>
     </div>
 
-    <!-- 3. カレンダー -->
-    <div id="view-calendar" class="view">
-      <div class="calendar-container">
-        <div class="calendar-stats-card">
-          <div>
-            <div class="calendar-stats-label" id="calMonthLabel">今月のつぶやき</div>
-            <div>
-              <span class="calendar-stats-num" id="calTotalCount">0</span>
-              <span class="calendar-stats-unit">件</span>
-            </div>
-          </div>
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="#1d9bf0" style="opacity: 0.8;"><path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zm0-12H5V6h14v2z"/></svg>
-        </div>
-
-        <div class="calendar-header-nav">
-          <button class="btn-cal-nav" onclick="changeCalMonth(-1)">‹</button>
-          <span class="calendar-month-title" id="calDisplayMonth">2026年 10月</span>
-          <button class="btn-cal-nav" onclick="changeCalMonth(1)">›</button>
-        </div>
-
-        <div class="calendar-grid" id="calendarGrid"></div>
-      </div>
-
-      <div class="selected-date-title" id="selectedDateTitle">日付を選択してください</div>
-      <div class="timeline" id="calendarTimeline"></div>
+    <!-- 3. ブックマーク -->
+    <div id="view-bookmarks" class="view">
+      <div class="timeline" id="bookmarkTimeline"></div>
     </div>
 
     <!-- 4. タグ一覧 -->
     <div id="view-tags" class="view">
-      <div class="tag-header-area">
-        <div class="tag-list-bar" id="tagListBar"></div>
-        <button class="btn-manage-tags" onclick="openTagManageModal()" title="タグの並び替え・管理">
-          <svg viewBox="0 0 24 24"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>
-        </button>
-      </div>
+      <div class="tag-header-area"><div class="tag-list-bar" id="tagListBar"></div></div>
       <div class="timeline" id="tagTimeline"></div>
     </div>
 
@@ -1192,11 +399,9 @@
     <div id="view-settings" class="view">
       <div class="page-content">
         <div class="profile-card">
-          <div class="profile-avatar-large" onclick="triggerAvatarSelect()">
-            <div id="settingAvatarContainer" style="width:100%; height:100%;"></div>
-            <div class="avatar-edit-badge">
-              <svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
-            </div>
+          <div class="profile-avatar-large" data-action="pick-avatar">
+            <div id="settingAvatarContainer" style="width:100%; height:100%; display:flex; align-items:center; justify-content:center;"></div>
+            <div class="avatar-edit-badge"><svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg></div>
           </div>
           <div class="profile-info">
             <div class="profile-info-name" id="displayProfileName">自分</div>
@@ -1208,187 +413,258 @@
         <div class="settings-list">
           <div class="settings-item">
             <label class="settings-item-label">表示名</label>
-            <input type="text" id="settingName" class="settings-item-input" value="自分" oninput="saveProfile()">
+            <input type="text" id="settingName" class="settings-item-input" value="自分">
           </div>
           <div class="settings-item">
             <label class="settings-item-label">ユーザー名</label>
-            <input type="text" id="settingHandle" class="settings-item-input" value="@you" oninput="saveProfile()">
+            <input type="text" id="settingHandle" class="settings-item-input" value="@you">
           </div>
         </div>
 
         <div class="settings-section-title">データ管理</div>
         <div class="settings-list">
-          <div class="settings-item-btn" onclick="exportData()">
-            <div class="settings-item-btn-text">
-              <span class="settings-item-title">データをバックアップ (JSON保存)</span>
-              <span class="settings-item-sub">つぶやきや設定をファイルに書き出します</span>
-            </div>
+          <div class="settings-item-btn" data-action="export">
+            <div><span class="settings-item-title">データをバックアップ (JSON保存)</span><span class="settings-item-sub">つぶやきや設定をファイルに書き出します</span></div>
             <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
           </div>
-          <div class="settings-item-btn" onclick="triggerImportData()">
-            <div class="settings-item-btn-text">
-              <span class="settings-item-title">データを復元 (JSON読み込み)</span>
-              <span class="settings-item-sub">保存したファイルからデータを読み込みます</span>
-            </div>
+          <div class="settings-item-btn" data-action="import">
+            <div><span class="settings-item-title">データを復元 (JSON読み込み)</span><span class="settings-item-sub">保存したファイルからデータを読み込みます（重複は自動でスキップ）</span></div>
             <svg viewBox="0 0 24 24"><path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/></svg>
           </div>
         </div>
-        <input type="file" id="importFileInput" accept=".json" style="display:none;" onchange="importData(event)">
+        <p class="settings-note">データはこの端末の中（IndexedDB）にだけ保存されます。どこにも送信されません。</p>
+        <input type="file" id="importFileInput" accept=".json" style="display:none;">
       </div>
     </div>
 
-    <input type="file" id="avatarFileInput" accept="image/*" style="display:none;" onchange="handleImageSelect(event)">
+    <input type="file" id="tweetFileInput" accept="image/*" multiple style="display:none;">
+    <input type="file" id="replyFileInput" accept="image/*" multiple style="display:none;">
+    <input type="file" id="editFileInput" accept="image/*" multiple style="display:none;">
+    <input type="file" id="avatarFileInput" accept="image/*" style="display:none;">
 
-    <!-- 返信（リプライ）用モーダル -->
-    <div class="reply-modal" id="replyModal">
-      <div class="reply-modal-container">
+    <!-- 返信モーダル -->
+    <div class="modal" id="replyModal">
+      <div class="modal-container">
         <div class="reply-target-preview">
           <div class="avatar-column">
             <div class="avatar" id="replyTargetAvatar"></div>
             <div class="reply-target-line"></div>
           </div>
-          <div style="flex:1;">
+          <div style="flex:1; min-width:0;">
             <div style="display:flex; gap:6px; align-items:center;">
               <span class="user-name" id="replyTargetName">自分</span>
               <span class="user-handle" id="replyTargetHandle">@you</span>
             </div>
-            <div class="reply-target-text" id="replyTargetText">親投稿テキスト</div>
+            <div class="reply-target-text" id="replyTargetText"></div>
           </div>
         </div>
-        <div class="post-box" style="border-bottom:none; padding:8px 0 0 0; position:static;">
+        <div class="post-box static">
           <div class="avatar my-avatar-container"></div>
           <div class="post-input-area">
             <textarea id="replyInput" placeholder="返信をつぶやく"></textarea>
-            <!-- 返信画像プレビュー表示域 -->
             <div id="replyImagePreviewArea" style="display:none;"></div>
           </div>
         </div>
         <div class="post-actions" style="border-top:1px solid rgba(255,255,255,0.1); padding-top:12px;">
-          <button class="btn-media-attach" onclick="triggerReplyImageSelect()" title="画像を追加">
+          <button class="btn-media-attach" data-action="pick-images" data-kind="reply" title="画像を追加">
             <svg viewBox="0 0 24 24"><path d="M19.75 2H4.25C3.01 2 2 3.01 2 4.25v15.5C2 20.99 3.01 22 4.25 22h15.5c1.24 0 2.25-1.01 2.25-2.25V4.25C22 3.01 20.99 2 19.75 2zM4.25 3.5h15.5c.41 0 .75.34.75.75v12.56l-3.52-3.52c-.73-.73-1.91-.73-2.65 0L10.5 17.17l-2.09-2.09c-.73-.73-1.91-.73-2.65 0L3.5 17.34V4.25c0-.41.34-.75.75-.75zm0 17c-.19 0-.36-.07-.49-.2l3.41-3.41c.15-.15.39-.15.53 0l2.09 2.09c.39.39 1.02.39 1.41 0l4.38-4.38c.15-.15.39-.15.53 0l3.92 3.92H4.25zM15.5 10c1.38 0 2.5-1.12 2.5-2.5S16.88 5 15.5 5 13 6.12 13 7.5s1.12 2.5 2.5 2.5zm0-3.5c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1z"/></svg>
           </button>
           <div style="display:flex; gap:8px;">
-            <button class="btn-crop-cancel" style="padding:6px 16px; border-radius:16px; font-size:13px;" onclick="closeReplyModal()">キャンセル</button>
-            <button class="btn-submit" onclick="submitReply()">返信</button>
+            <button class="btn-cancel" data-action="close-reply">キャンセル</button>
+            <button class="btn-submit" data-action="submit-reply">返信</button>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- タグ順序並び替えモーダル -->
-    <div class="tag-modal" id="tagManageModal">
-      <div class="tag-modal-container">
-        <div class="tag-modal-header">
-          <span class="tag-modal-title">タグの並び替え</span>
-          <button class="btn-tag-modal-close" onclick="closeTagManageModal()">完了</button>
+    <!-- 編集モーダル -->
+    <div class="modal" id="editModal">
+      <div class="modal-container">
+        <div class="modal-header">
+          <span class="modal-title">つぶやきを編集</span>
+          <button class="btn-cancel" data-action="close-edit">閉じる</button>
         </div>
-        <div class="tag-modal-list" id="tagModalList"></div>
+        <div class="post-box static">
+          <div class="avatar my-avatar-container"></div>
+          <div class="post-input-area">
+            <textarea id="editInput" placeholder="今なにしてる？"></textarea>
+            <div id="editImagePreviewArea" style="display:none;"></div>
+          </div>
+        </div>
+        <div class="post-actions" style="border-top:1px solid rgba(255,255,255,0.1); padding-top:12px;">
+          <button class="btn-media-attach" data-action="pick-images" data-kind="edit" title="画像を追加">
+            <svg viewBox="0 0 24 24"><path d="M19.75 2H4.25C3.01 2 2 3.01 2 4.25v15.5C2 20.99 3.01 22 4.25 22h15.5c1.24 0 2.25-1.01 2.25-2.25V4.25C22 3.01 20.99 2 19.75 2zM4.25 3.5h15.5c.41 0 .75.34.75.75v12.56l-3.52-3.52c-.73-.73-1.91-.73-2.65 0L10.5 17.17l-2.09-2.09c-.73-.73-1.91-.73-2.65 0L3.5 17.34V4.25c0-.41.34-.75.75-.75zm0 17c-.19 0-.36-.07-.49-.2l3.41-3.41c.15-.15.39-.15.53 0l2.09 2.09c.39.39 1.02.39 1.41 0l4.38-4.38c.15-.15.39-.15.53 0l3.92 3.92H4.25zM15.5 10c1.38 0 2.5-1.12 2.5-2.5S16.88 5 15.5 5 13 6.12 13 7.5s1.12 2.5 2.5 2.5zm0-3.5c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1z"/></svg>
+          </button>
+          <button class="btn-submit" data-action="submit-edit">保存</button>
+        </div>
       </div>
     </div>
 
-    <!-- 画像拡大（ライトボックス）モーダル -->
-    <div class="image-modal" id="imageModal" onclick="closeImageModal()">
+    <!-- 画像拡大モーダル -->
+    <div class="modal image-modal" id="imageModal" data-action="close-image">
       <img id="imageModalImg" src="" alt="enlarged">
     </div>
 
-    <!-- ツイート詳細（スレッド表示）モーダル -->
-    <div class="detail-modal" id="detailModal" onclick="closeDetailModal(event)">
-      <div class="detail-modal-container" onclick="event.stopPropagation()">
-        <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:10px; margin-bottom: 8px;">
-          <span style="font-weight:700; font-size:16px;">会話・スレッド</span>
-          <button class="btn-crop-cancel" style="padding:4px 12px; font-size:12px; border-radius:12px; flex:none;" onclick="closeDetailModalDirect()">閉じる</button>
+    <!-- 詳細（スレッド）モーダル -->
+    <div class="modal" id="detailModal">
+      <div class="modal-container">
+        <div class="modal-header">
+          <span class="modal-title">会話・スレッド</span>
+          <button class="btn-cancel" data-action="close-detail">閉じる</button>
         </div>
         <div id="detailModalContent"></div>
       </div>
     </div>
 
-    <!-- トリミング用モダール -->
-    <div class="crop-modal" id="cropModal">
-      <div class="crop-container">
-        <canvas id="cropCanvas" width="280" height="280"></canvas>
-      </div>
-      <div class="crop-controls">
-        <div class="zoom-slider-container">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
-          <input type="range" class="zoom-slider" id="zoomSlider" min="1" max="3" step="0.05" value="1" oninput="onZoomChange()">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14zm-1-7h2v2h-2V7zm0 4h2v2h-2v-2z"/></svg>
-        </div>
-        <div class="crop-actions">
-          <button class="btn-crop-cancel" onclick="closeCropModal()">キャンセル</button>
-          <button class="btn-crop-save" onclick="saveCroppedAvatar()">確定</button>
+    <!-- 確認シート -->
+    <div class="confirm-sheet" id="confirmSheet">
+      <div class="confirm-box">
+        <div class="confirm-message" id="confirmMessage"></div>
+        <div class="confirm-buttons">
+          <button class="btn-confirm-no" id="confirmNo">キャンセル</button>
+          <button class="btn-confirm-yes" id="confirmYes">OK</button>
         </div>
       </div>
     </div>
 
-    <!-- 下部固定ナビゲーションバー（6項目） -->
+    <div class="toast" id="toast"></div>
+
+    <!-- 下部ナビ（6項目） -->
     <nav class="bottom-nav">
-      <button class="nav-item active" onclick="switchTab('home', 'ホーム', this)">
-        <svg viewBox="0 0 24 24"><path d="M12 3l9 8h-3v10h-5v-6h-2v6H5V11H2l9-8z"/></svg>
-      </button>
-      <button class="nav-item" onclick="switchTab('search', '検索', this)">
-        <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
-      </button>
-      <button class="nav-item" onclick="switchTab('calendar', 'カレンダー', this)">
-        <svg viewBox="0 0 24 24"><path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zm0-12H5V6h14v2z"/></svg>
-      </button>
-      <button class="nav-item" onclick="switchTab('tags', 'タグ', this)">
-        <svg viewBox="0 0 24 24"><path d="M20 10V8h-4V4h-2v4h-4V4H8v4H4v2h4v4H4v2h4v4h2v-4h4v4h2v-4h4v-2h-4v-4h4zm-6 4h-4v-4h4v4z"/></svg>
-      </button>
-      <button class="nav-item" onclick="switchTab('media', 'メディア', this)">
-        <svg viewBox="0 0 24 24"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
-      </button>
-      <button class="nav-item" onclick="switchTab('settings', '設定', this)">
-        <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6-3.6z"/></svg>
-      </button>
+      <button class="nav-item active" data-action="tab" data-tab="home" data-title="ホーム"><svg viewBox="0 0 24 24"><path d="M12 3l9 8h-3v10h-5v-6h-2v6H5V11H2l9-8z"/></svg></button>
+      <button class="nav-item" data-action="tab" data-tab="search" data-title="検索"><svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg></button>
+      <button class="nav-item" data-action="tab" data-tab="bookmarks" data-title="ブックマーク"><svg viewBox="0 0 24 24"><path d="M17 3H7c-1.1 0-2 .9-2 2v16l7-3 7 3V5c0-1.1-.9-2-2-2z"/></svg></button>
+      <button class="nav-item" data-action="tab" data-tab="tags" data-title="タグ"><svg viewBox="0 0 24 24"><path d="M20 10V8h-4V4h-2v4h-4V4H8v4H4v2h4v4H4v2h4v4h2v-4h4v4h2v-4h4v-2h-4v-4h4zm-6 4h-4v-4h4v4z"/></svg></button>
+      <button class="nav-item" data-action="tab" data-tab="media" data-title="メディア"><svg viewBox="0 0 24 24"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg></button>
+      <button class="nav-item" data-action="tab" data-tab="settings" data-title="設定"><svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg></button>
     </nav>
   </div>
 
   <script>
-    let db;
+    'use strict';
+    /* ============================================================
+       My X rebuild v1 (2026-11-19)
+       - データ互換: DB名 MyXDB v2 / stores tweets,settings / backup v1.0
+       - データは起動時にメモリへ1回だけ読み、全画面はメモリから描画
+       - ユーザー文字列は textContent / DOM構築でのみ入れ、直入れしない
+       ============================================================ */
+    let db = null;
+    let allTweets = [];
     let currentUser = {
       name: localStorage.getItem('myX_name') || '自分',
       handle: localStorage.getItem('myX_handle') || '@you',
       avatar: ''
     };
-    let activeSelectedTag = '';
-    let customTagOrder = [];
-    let currentTagCounts = {};
-    let activeReplyTargetTweet = null;
+    let currentView = 'home';
+    let activeTag = '';
+    let activeReplyTargetId = null;
+    let activeEditId = null;
+    let activeDetailId = null;
+    const pendingImages = { tweet: [], reply: [], edit: [] };
 
-    // 投稿・リプライ添付用一時画像データ
-    let currentTweetImages = [];
-    let currentReplyImages = [];
+    const ICONS = {
+      reply: '<svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg>',
+      retweet: '<svg viewBox="0 0 24 24"><path d="M4.5 3.88l4.42 4.42-1.41 1.41L5.5 7.71V15c0 1.66 1.34 3 3 3h7v2h-7c-2.76 0-5-2.24-5-5V7.71L1.49 9.71.08 8.3 4.5 3.88zM19.5 20.12l-4.42-4.42 1.41-1.41 2.01 2.01V9c0-1.66-1.34-3-3-3h-7V4h7c2.76 0 5 2.24 5 5v7.3l2.01-2.01 1.41 1.41-4.42 4.42z"/></svg>',
+      like: '<svg viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>',
+      bookmark: '<svg viewBox="0 0 24 24"><path d="M17 3H7c-1.1 0-2 .9-2 2v16l7-3 7 3V5c0-1.1-.9-2-2-2z"/></svg>',
+      share: '<svg viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"/></svg>'
+    };
+    const DEFAULT_AVATAR_SVG = '<svg viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>';
 
-    // カレンダー状態管理
-    let calCurrentYear = new Date().getFullYear();
-    let calCurrentMonth = new Date().getMonth();
-    let calSelectedDateStr = '';
-
-    const defaultAvatarSVG = `<svg viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>`;
-
-    function getAvatarHTML(avatarData) {
-      const src = avatarData || currentUser.avatar;
-      return src ? `<img src="${src}" alt="avatar">` : defaultAvatarSVG;
+    /* ---------- IndexedDB（Promise化） ---------- */
+    function openDB() {
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open('MyXDB', 2);
+        req.onupgradeneeded = (e) => {
+          const d = e.target.result;
+          if (!d.objectStoreNames.contains('tweets')) d.createObjectStore('tweets', { keyPath: 'id', autoIncrement: true });
+          if (!d.objectStoreNames.contains('settings')) d.createObjectStore('settings', { keyPath: 'key' });
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
     }
+    function idbReq(storeName, mode, fn) {
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction([storeName], mode);
+        const store = tx.objectStore(storeName);
+        const req = fn(store);
+        if (req) {
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => reject(req.error);
+        } else {
+          tx.oncomplete = () => resolve(undefined);
+          tx.onerror = () => reject(tx.error);
+        }
+      });
+    }
+    const idbGetAllTweets = () => idbReq('tweets', 'readonly', s => s.getAll());
+    const idbGetAllSettings = () => idbReq('settings', 'readonly', s => s.getAll());
+    const idbAddTweet = (t) => idbReq('tweets', 'readwrite', s => s.add(t));
+    const idbPutTweet = (t) => idbReq('tweets', 'readwrite', s => s.put(t));
+    const idbDeleteTweet = (id) => idbReq('tweets', 'readwrite', s => s.delete(id));
+    const idbGetSetting = (key) => idbReq('settings', 'readonly', s => s.get(key));
+    const idbPutSetting = (key, value) => idbReq('settings', 'readwrite', s => s.put({ key, value }));
 
-    /* 日付＋時刻フォーマット関数（リワーク追加） */
+    /* ---------- 小物 ---------- */
     function formatTweetDate(timestamp, timeFallback) {
       if (!timestamp) return timeFallback || '';
       const d = new Date(timestamp);
-      const year = d.getFullYear();
-      const month = String(d.getMonth() + 1).padStart(2, '0');
-      const date = String(d.getDate()).padStart(2, '0');
-      const hours = String(d.getHours()).padStart(2, '0');
-      const minutes = String(d.getMinutes()).padStart(2, '0');
-      return `${year}/${month}/${date} ${hours}:${minutes}`;
+      const p = (n) => String(n).padStart(2, '0');
+      return `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
     }
+    function getTweet(id) { return allTweets.find(t => t.id === id) || null; }
+    function childrenOf(id) { return allTweets.filter(t => t.parentId === id).sort((a, b) => a.createdAt - b.createdAt); }
+    function replyCountOf(id) { return allTweets.reduce((n, t) => n + (t.parentId === id ? 1 : 0), 0); }
+    function extractTags(text) {
+      const tags = [];
+      const re = /#([^\s#\u3000]+)/g;
+      let m;
+      while ((m = re.exec(text || '')) !== null) tags.push(m[1]);
+      return tags;
+    }
+    let toastTimer = null;
+    function showToast(msg) {
+      const el = document.getElementById('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('show'), 2400);
+    }
+    let confirmResolve = null;
+    function showConfirm(message, yesLabel, danger) {
+      return new Promise((resolve) => {
+        confirmResolve = resolve;
+        document.getElementById('confirmMessage').textContent = message;
+        const yes = document.getElementById('confirmYes');
+        yes.textContent = yesLabel || 'OK';
+        yes.classList.toggle('normal', !danger);
+        document.getElementById('confirmSheet').classList.add('show');
+      });
+    }
+    function settleConfirm(v) {
+      document.getElementById('confirmSheet').classList.remove('show');
+      if (confirmResolve) { confirmResolve(v); confirmResolve = null; }
+    }
+    document.getElementById('confirmYes').addEventListener('click', () => settleConfirm(true));
+    document.getElementById('confirmNo').addEventListener('click', () => settleConfirm(false));
 
+    /* ---------- アバター ---------- */
+    function setAvatarInto(el, avatarData) {
+      el.textContent = '';
+      const src = avatarData !== undefined ? avatarData : currentUser.avatar;
+      if (src) {
+        const img = document.createElement('img');
+        img.src = src; img.alt = 'avatar';
+        el.appendChild(img);
+      } else {
+        el.innerHTML = DEFAULT_AVATAR_SVG;
+      }
+    }
     function renderAllAvatars() {
-      const html = getAvatarHTML();
-      document.querySelectorAll('.my-avatar-container').forEach(el => el.innerHTML = html);
-      document.getElementById('settingAvatarContainer').innerHTML = html;
+      document.querySelectorAll('.my-avatar-container').forEach(el => setAvatarInto(el));
+      setAvatarInto(document.getElementById('settingAvatarContainer'));
     }
-
     function initProfileUI() {
       document.getElementById('settingName').value = currentUser.name;
       document.getElementById('settingHandle').value = currentUser.handle;
@@ -1396,1308 +672,731 @@
       document.getElementById('displayProfileHandle').textContent = currentUser.handle;
     }
 
-    const request = indexedDB.open('MyXDB', 2);
-
-    request.onupgradeneeded = function(e) {
-      db = e.target.result;
-      if (!db.objectStoreNames.contains('tweets')) {
-        db.createObjectStore('tweets', { keyPath: 'id', autoIncrement: true });
-      }
-      if (!db.objectStoreNames.contains('settings')) {
-        db.createObjectStore('settings', { keyPath: 'key' });
-      }
-    };
-
-    request.onsuccess = function(e) {
-      db = e.target.result;
-      loadSavedAvatar();
-      loadSavedTagOrder();
-      loadTweets();
-    };
-
-    function loadSavedAvatar() {
-      const tx = db.transaction(['settings'], 'readonly');
-      const store = tx.objectStore('settings');
-      const getReq = store.get('userAvatar');
-      getReq.onsuccess = function() {
-        if (getReq.result) {
-          currentUser.avatar = getReq.result.value;
+    /* ---------- 本文（タグを安全にリンク化） ---------- */
+    function buildTweetText(text) {
+      const frag = document.createDocumentFragment();
+      const lines = String(text || '').split('\n');
+      lines.forEach((line, li) => {
+        if (li > 0) frag.appendChild(document.createElement('br'));
+        const re = /#([^\s#\u3000]+)/g;
+        let last = 0, m;
+        while ((m = re.exec(line)) !== null) {
+          if (m.index > last) frag.appendChild(document.createTextNode(line.slice(last, m.index)));
+          const span = document.createElement('span');
+          span.className = 'hashtag';
+          span.dataset.action = 'hashtag';
+          span.dataset.tag = m[1];
+          span.textContent = '#' + m[1];
+          frag.appendChild(span);
+          last = m.index + m[0].length;
         }
-        initProfileUI();
-        renderAllAvatars();
-      };
+        if (last < line.length) frag.appendChild(document.createTextNode(line.slice(last)));
+      });
+      return frag;
     }
 
-    function loadSavedTagOrder() {
-      const tx = db.transaction(['settings'], 'readonly');
-      const store = tx.objectStore('settings');
-      const getReq = store.get('tagOrder');
-      getReq.onsuccess = function() {
-        if (getReq.result && Array.isArray(getReq.result.value)) {
-          customTagOrder = getReq.result.value;
+    /* ---------- ツイートカード（全画面共通の1本） ---------- */
+    function makeActionBtn(action, id, icon, count, activeClass) {
+      const btn = document.createElement('button');
+      btn.className = 'action-btn' + (activeClass ? ' ' + activeClass : '');
+      btn.dataset.action = action;
+      btn.dataset.id = id;
+      btn.innerHTML = icon;
+      if (count) {
+        const s = document.createElement('span');
+        s.textContent = count;
+        btn.appendChild(s);
+      }
+      return btn;
+    }
+    function createTweetCard(tweet, opts) {
+      opts = opts || {};
+      const card = document.createElement('div');
+      card.className = 'tweet-card' + (opts.main ? ' main-target-tweet' : '');
+      card.dataset.cardId = tweet.id;
+
+      const col = document.createElement('div');
+      col.className = 'avatar-column';
+      const av = document.createElement('div');
+      av.className = 'avatar';
+      setAvatarInto(av, tweet.userAvatar || '');
+      col.appendChild(av);
+      if (opts.threadLine) {
+        const line = document.createElement('div');
+        line.className = 'thread-line';
+        col.appendChild(line);
+      }
+      card.appendChild(col);
+
+      const body = document.createElement('div');
+      body.className = 'tweet-body';
+
+      const header = document.createElement('div');
+      header.className = 'tweet-header';
+      const nameEl = document.createElement('span');
+      nameEl.className = 'user-name';
+      nameEl.textContent = tweet.userName || currentUser.name;
+      const handleEl = document.createElement('span');
+      handleEl.className = 'user-handle';
+      handleEl.textContent = tweet.userHandle || currentUser.handle;
+      const dateEl = document.createElement('span');
+      dateEl.className = 'tweet-date';
+      dateEl.textContent = formatTweetDate(tweet.createdAt, tweet.time);
+      const menuWrap = document.createElement('div');
+      menuWrap.className = 'menu-wrap';
+      const menuBtn = document.createElement('button');
+      menuBtn.className = 'btn-menu';
+      menuBtn.dataset.action = 'menu';
+      menuBtn.dataset.id = tweet.id;
+      menuBtn.textContent = '•••';
+      const menu = document.createElement('div');
+      menu.className = 'dropdown-menu';
+      menu.id = 'menu-' + tweet.id;
+      const editItem = document.createElement('div');
+      editItem.className = 'dropdown-item';
+      editItem.dataset.action = 'edit';
+      editItem.dataset.id = tweet.id;
+      editItem.textContent = '編集する';
+      const delItem = document.createElement('div');
+      delItem.className = 'dropdown-item danger';
+      delItem.dataset.action = 'delete';
+      delItem.dataset.id = tweet.id;
+      delItem.textContent = '削除する';
+      menu.appendChild(editItem);
+      menu.appendChild(delItem);
+      menuWrap.appendChild(menuBtn);
+      menuWrap.appendChild(menu);
+      header.appendChild(nameEl);
+      header.appendChild(handleEl);
+      header.appendChild(dateEl);
+      header.appendChild(menuWrap);
+      body.appendChild(header);
+
+      const textEl = document.createElement('div');
+      textEl.className = 'tweet-text';
+      textEl.appendChild(buildTweetText(tweet.text));
+      body.appendChild(textEl);
+
+      if (Array.isArray(tweet.images) && tweet.images.length) {
+        const grid = document.createElement('div');
+        grid.className = 'tweet-images count-' + Math.min(tweet.images.length, 4);
+        tweet.images.slice(0, 4).forEach(src => {
+          const img = document.createElement('img');
+          img.src = src;
+          img.alt = 'image';
+          img.dataset.action = 'image';
+          grid.appendChild(img);
+        });
+        body.appendChild(grid);
+      }
+
+      const row = document.createElement('div');
+      row.className = 'tweet-actions-row';
+      row.appendChild(makeActionBtn('reply', tweet.id, ICONS.reply, replyCountOf(tweet.id) || '', ''));
+      row.appendChild(makeActionBtn('retweet', tweet.id, ICONS.retweet, tweet.retweetCount || '', tweet.isRetweeted ? 'retweeted' : ''));
+      row.appendChild(makeActionBtn('like', tweet.id, ICONS.like, tweet.likeCount || '', tweet.isLiked ? 'liked' : ''));
+      row.appendChild(makeActionBtn('bookmark', tweet.id, ICONS.bookmark, '', tweet.isBookmarked ? 'bookmarked' : ''));
+      row.appendChild(makeActionBtn('share', tweet.id, ICONS.share, '', ''));
+      body.appendChild(row);
+
+      card.appendChild(body);
+      return card;
+    }
+    function emptyState(text) {
+      const d = document.createElement('div');
+      d.className = 'empty-state';
+      d.textContent = text;
+      return d;
+    }
+
+    /* ---------- 描画 ---------- */
+    function renderHome() {
+      const tl = document.getElementById('timeline');
+      tl.textContent = '';
+      const parents = allTweets.filter(t => !t.parentId);
+      parents.sort((a, b) => {
+        const ta = a.isRetweeted && a.retweetedAt ? a.retweetedAt : a.createdAt;
+        const tb = b.isRetweeted && b.retweetedAt ? b.retweetedAt : b.createdAt;
+        return tb - ta;
+      });
+      if (!parents.length) { tl.appendChild(emptyState('まだつぶやきがありません。\n思ったことを、そのまま放り込んでください。')); return; }
+      parents.forEach(parent => {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'tweet-card-wrapper';
+        if (parent.isRetweeted) {
+          const label = document.createElement('div');
+          label.className = 'retweet-header-label';
+          label.innerHTML = ICONS.retweet;
+          const s = document.createElement('span');
+          s.textContent = '自分がリポストしました';
+          label.appendChild(s);
+          wrapper.appendChild(label);
         }
-      };
+        const kids = childrenOf(parent.id);
+        wrapper.appendChild(createTweetCard(parent, { threadLine: kids.length > 0 }));
+        kids.forEach((kid, i) => wrapper.appendChild(createTweetCard(kid, { threadLine: i < kids.length - 1 })));
+        tl.appendChild(wrapper);
+      });
     }
-
-    function saveTagOrderToIDB() {
-      const tx = db.transaction(['settings'], 'readwrite');
-      const store = tx.objectStore('settings');
-      store.put({ key: 'tagOrder', value: customTagOrder });
+    function renderFlatList(container, tweets, emptyText) {
+      container.textContent = '';
+      if (!tweets.length) { container.appendChild(emptyState(emptyText)); return; }
+      tweets.forEach(t => {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'tweet-card-wrapper';
+        wrapper.appendChild(createTweetCard(t, {}));
+        container.appendChild(wrapper);
+      });
     }
-
-    function switchTab(tabId, title, btnElement) {
+    function renderSearch() {
+      const q = document.getElementById('searchInput').value.trim().toLowerCase();
+      const box = document.getElementById('searchResults');
+      if (!q) { renderFlatList(box, [], 'キーワードや #タグ で検索できます。'); return; }
+      const hits = allTweets.filter(t => (t.text || '').toLowerCase().includes(q))
+        .sort((a, b) => b.createdAt - a.createdAt);
+      renderFlatList(box, hits, '見つかりませんでした。');
+    }
+    function renderBookmarks() {
+      const hits = allTweets.filter(t => t.isBookmarked).sort((a, b) => b.createdAt - a.createdAt);
+      renderFlatList(document.getElementById('bookmarkTimeline'), hits, 'ブックマークしたつぶやきがここに並びます。');
+    }
+    function renderTags() {
+      const bar = document.getElementById('tagListBar');
+      bar.textContent = '';
+      const stats = new Map();
+      allTweets.forEach(t => {
+        extractTags(t.text).forEach(tag => {
+          const s = stats.get(tag) || { count: 0, latest: 0 };
+          s.count++; s.latest = Math.max(s.latest, t.createdAt || 0);
+          stats.set(tag, s);
+        });
+      });
+      const tags = [...stats.entries()].sort((a, b) => b[1].count - a[1].count || b[1].latest - a[1].latest);
+      if (activeTag && !stats.has(activeTag)) activeTag = '';
+      tags.forEach(([tag, s]) => {
+        const pill = document.createElement('button');
+        pill.className = 'tag-pill' + (tag === activeTag ? ' active' : '');
+        pill.dataset.action = 'tag-pill';
+        pill.dataset.tag = tag;
+        const n = document.createElement('span');
+        n.textContent = '#' + tag;
+        const c = document.createElement('span');
+        c.className = 'tag-count';
+        c.textContent = s.count;
+        pill.appendChild(n); pill.appendChild(c);
+        bar.appendChild(pill);
+      });
+      if (!tags.length) bar.appendChild(emptyState('まだタグがありません。\nつぶやきに #タグ を入れると、ここに集まります。'));
+      const box = document.getElementById('tagTimeline');
+      if (!activeTag) { renderFlatList(box, [], tags.length ? 'タグを選ぶと、そのつぶやきだけが並びます。' : ''); return; }
+      const hits = allTweets.filter(t => extractTags(t.text).includes(activeTag))
+        .sort((a, b) => b.createdAt - a.createdAt);
+      renderFlatList(box, hits, '見つかりませんでした。');
+    }
+    function renderMedia() {
+      const grid = document.getElementById('mediaGrid');
+      grid.textContent = '';
+      const items = [];
+      allTweets.forEach(t => (t.images || []).forEach(src => items.push({ tweetId: t.id, src, createdAt: t.createdAt || 0 })));
+      items.sort((a, b) => b.createdAt - a.createdAt);
+      if (!items.length) { grid.appendChild(emptyState('画像つきのつぶやきがここに並びます。')); return; }
+      items.forEach(it => {
+        const d = document.createElement('div');
+        d.className = 'media-item';
+        d.dataset.action = 'media-item';
+        d.dataset.id = it.tweetId;
+        const img = document.createElement('img');
+        img.src = it.src; img.alt = 'media';
+        d.appendChild(img);
+        grid.appendChild(d);
+      });
+    }
+    function renderCurrentView() {
+      if (currentView === 'home') renderHome();
+      else if (currentView === 'search') renderSearch();
+      else if (currentView === 'bookmarks') renderBookmarks();
+      else if (currentView === 'tags') renderTags();
+      else if (currentView === 'media') renderMedia();
+      if (document.getElementById('detailModal').classList.contains('show') && activeDetailId != null) {
+        if (getTweet(activeDetailId)) renderDetail(activeDetailId);
+        else closeDetail();
+      }
+    }
+    function switchTab(tabId, title) {
+      currentView = tabId;
       document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-      document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
-
-      document.getElementById(`view-${tabId}`).classList.add('active');
-      if (btnElement) btnElement.classList.add('active');
+      document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.tab === tabId));
+      document.getElementById('view-' + tabId).classList.add('active');
       document.getElementById('headerTitle').textContent = title;
-
-      if (tabId === 'home') {
-        loadTweets();
-      } else if (tabId === 'search') {
-        performSearch();
-      } else if (tabId === 'calendar') {
-        renderCalendarView();
-      } else if (tabId === 'tags') {
-        renderTagsView();
-      } else if (tabId === 'media') {
-        renderMediaView();
-      }
+      renderCurrentView();
     }
 
+    /* ---------- 詳細（スレッド） ---------- */
+    function getAncestors(targetId) {
+      const out = [];
+      let cur = getTweet(targetId);
+      const guard = new Set();
+      while (cur && cur.parentId && !guard.has(cur.id)) {
+        guard.add(cur.id);
+        const parent = getTweet(cur.parentId);
+        if (!parent) break;
+        out.unshift(parent);
+        cur = parent;
+      }
+      return out;
+    }
+    function appendDescendants(parentId, container, level) {
+      childrenOf(parentId).forEach(reply => {
+        const wrap = document.createElement('div');
+        if (level > 0) {
+          wrap.className = 'nested-reply-wrapper';
+          wrap.style.paddingLeft = Math.min(level * 14, 42) + 'px';
+        }
+        wrap.appendChild(createTweetCard(reply, { threadLine: childrenOf(reply.id).length > 0 }));
+        container.appendChild(wrap);
+        appendDescendants(reply.id, container, level + 1);
+      });
+    }
+    function renderDetail(id) {
+      const target = getTweet(id);
+      if (!target) return;
+      activeDetailId = id;
+      const content = document.getElementById('detailModalContent');
+      content.textContent = '';
+      getAncestors(id).forEach(anc => content.appendChild(createTweetCard(anc, { threadLine: true })));
+      content.appendChild(createTweetCard(target, { threadLine: childrenOf(id).length > 0, main: true }));
+      const desc = document.createElement('div');
+      desc.style.marginTop = '8px';
+      appendDescendants(id, desc, 0);
+      content.appendChild(desc);
+    }
+    function openDetail(id) {
+      if (!getTweet(id)) return;
+      renderDetail(id);
+      document.getElementById('detailModal').classList.add('show');
+    }
+    function closeDetail() {
+      document.getElementById('detailModal').classList.remove('show');
+      activeDetailId = null;
+    }
+
+    /* ---------- 画像の取り込み（自動で縮小・圧縮） ---------- */
+    function readAsDataURL(file) {
+      return new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(r.result);
+        r.onerror = () => reject(r.error);
+        r.readAsDataURL(file);
+      });
+    }
+    async function compressImageFile(file) {
+      if (file.type === 'image/gif') return readAsDataURL(file);
+      const url = URL.createObjectURL(file);
+      try {
+        const img = await new Promise((resolve, reject) => {
+          const i = new Image();
+          i.onload = () => resolve(i);
+          i.onerror = reject;
+          i.src = url;
+        });
+        const MAX = 1600;
+        const scale = Math.min(1, MAX / Math.max(img.naturalWidth, img.naturalHeight));
+        if (scale >= 1 && file.size <= 800 * 1024) return await readAsDataURL(file);
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.naturalWidth * scale);
+        canvas.height = Math.round(img.naturalHeight * scale);
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        return canvas.toDataURL(file.type === 'image/png' ? 'image/png' : 'image/jpeg', 0.85);
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    }
+    async function squareAvatarFile(file) {
+      const url = URL.createObjectURL(file);
+      try {
+        const img = await new Promise((resolve, reject) => {
+          const i = new Image();
+          i.onload = () => resolve(i);
+          i.onerror = reject;
+          i.src = url;
+        });
+        const side = Math.min(img.naturalWidth, img.naturalHeight);
+        const canvas = document.createElement('canvas');
+        canvas.width = 256; canvas.height = 256;
+        canvas.getContext('2d').drawImage(img,
+          (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side,
+          0, 0, 256, 256);
+        return canvas.toDataURL('image/png');
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    }
+    function renderPreview(kind) {
+      const areaIds = { tweet: 'tweetImagePreviewArea', reply: 'replyImagePreviewArea', edit: 'editImagePreviewArea' };
+      const area = document.getElementById(areaIds[kind]);
+      const list = pendingImages[kind];
+      area.textContent = '';
+      if (!list.length) { area.style.display = 'none'; return; }
+      area.style.display = 'block';
+      const row = document.createElement('div');
+      row.className = 'preview-row';
+      list.forEach((src, idx) => {
+        const box = document.createElement('div');
+        box.className = 'image-preview-container';
+        const img = document.createElement('img');
+        img.src = src; img.alt = 'preview';
+        const btn = document.createElement('button');
+        btn.className = 'btn-remove-preview';
+        btn.dataset.action = 'remove-image';
+        btn.dataset.kind = kind;
+        btn.dataset.index = idx;
+        btn.textContent = '×';
+        box.appendChild(img); box.appendChild(btn);
+        row.appendChild(box);
+      });
+      area.appendChild(row);
+    }
+    async function handleImageFiles(kind, files) {
+      const slots = 4 - pendingImages[kind].length;
+      if (slots <= 0) { showToast('画像は4枚までです'); return; }
+      for (const file of [...files].slice(0, slots)) {
+        try { pendingImages[kind].push(await compressImageFile(file)); }
+        catch (e) { console.error(e); showToast('画像を読み込めませんでした'); }
+      }
+      renderPreview(kind);
+    }
+
+    /* ---------- 投稿・返信・編集・削除 ---------- */
+    function buildTweetData(text, images, parentId) {
+      const now = new Date();
+      const p = (n) => String(n).padStart(2, '0');
+      return {
+        text: text, images: images, time: p(now.getHours()) + ':' + p(now.getMinutes()),
+        createdAt: now.getTime(), userName: currentUser.name, userHandle: currentUser.handle,
+        userAvatar: currentUser.avatar, parentId: parentId || null,
+        likeCount: 0, retweetCount: 0, replyCount: 0,
+        isLiked: false, isRetweeted: false, isBookmarked: false, views: 1, retweetedAt: null
+      };
+    }
+    async function postTweet(text, images, parentId) {
+      const data = buildTweetData(text, images, parentId);
+      data.id = await idbAddTweet(data);
+      allTweets.push(data);
+      return data;
+    }
+    async function submitTweet() {
+      const ta = document.getElementById('tweetInput');
+      const text = ta.value.trim();
+      if (!text && !pendingImages.tweet.length) return;
+      await postTweet(text, [...pendingImages.tweet], null);
+      ta.value = '';
+      pendingImages.tweet = [];
+      renderPreview('tweet');
+      renderCurrentView();
+      showToast('つぶやきました');
+    }
+    function openReply(id) {
+      const t = getTweet(id);
+      if (!t) return;
+      activeReplyTargetId = id;
+      setAvatarInto(document.getElementById('replyTargetAvatar'), t.userAvatar || '');
+      document.getElementById('replyTargetName').textContent = t.userName || currentUser.name;
+      document.getElementById('replyTargetHandle').textContent = t.userHandle || currentUser.handle;
+      document.getElementById('replyTargetText').textContent = t.text || '';
+      document.getElementById('replyModal').classList.add('show');
+      setTimeout(() => document.getElementById('replyInput').focus(), 50);
+    }
+    function closeReply() {
+      document.getElementById('replyModal').classList.remove('show');
+      document.getElementById('replyInput').value = '';
+      pendingImages.reply = [];
+      renderPreview('reply');
+      activeReplyTargetId = null;
+    }
+    async function submitReply() {
+      const ta = document.getElementById('replyInput');
+      const text = ta.value.trim();
+      if ((!text && !pendingImages.reply.length) || activeReplyTargetId == null) return;
+      await postTweet(text, [...pendingImages.reply], activeReplyTargetId);
+      closeReply();
+      renderCurrentView();
+      showToast('返信しました');
+    }
+    function openEdit(id) {
+      const t = getTweet(id);
+      if (!t) return;
+      activeEditId = id;
+      document.getElementById('editInput').value = t.text || '';
+      pendingImages.edit = [...(t.images || [])];
+      renderPreview('edit');
+      document.getElementById('editModal').classList.add('show');
+    }
+    function closeEdit() {
+      document.getElementById('editModal').classList.remove('show');
+      pendingImages.edit = [];
+      activeEditId = null;
+    }
+    async function submitEdit() {
+      const t = getTweet(activeEditId);
+      if (!t) { closeEdit(); return; }
+      const text = document.getElementById('editInput').value.trim();
+      if (!text && !pendingImages.edit.length) { showToast('本文か画像が必要です'); return; }
+      t.text = text;
+      t.images = [...pendingImages.edit];
+      await idbPutTweet(t);
+      closeEdit();
+      renderCurrentView();
+      showToast('編集しました');
+    }
+    function collectDescendantIds(id, out) {
+      out.push(id);
+      childrenOf(id).forEach(k => collectDescendantIds(k.id, out));
+      return out;
+    }
+    async function deleteTweetFlow(id) {
+      const ids = collectDescendantIds(id, []);
+      const extra = ids.length - 1;
+      const ok = await showConfirm(
+        extra > 0 ? `このつぶやきと、返信${extra}件も一緒に削除しますか？` : 'このつぶやきを削除しますか？',
+        '削除する', true);
+      if (!ok) return;
+      for (const delId of ids) await idbDeleteTweet(delId);
+      allTweets = allTweets.filter(t => !ids.includes(t.id));
+      renderCurrentView();
+      showToast('削除しました');
+    }
+    async function toggleField(id, field, countField, onChange) {
+      const t = getTweet(id);
+      if (!t) return;
+      t[field] = !t[field];
+      if (countField) t[countField] = Math.max(0, (t[countField] || 0) + (t[field] ? 1 : -1));
+      if (onChange) onChange(t);
+      await idbPutTweet(t);
+      renderCurrentView();
+    }
+
+    /* ---------- バックアップ／復元（形式は従来と互換） ---------- */
+    async function exportData() {
+      const settings = await idbGetAllSettings();
+      const tweets = [...allTweets].sort((a, b) => (a.id || 0) - (b.id || 0));
+      const backup = {
+        version: '1.0', exportedAt: new Date().toISOString(),
+        localStorage: {
+          myX_name: localStorage.getItem('myX_name') || '自分',
+          myX_handle: localStorage.getItem('myX_handle') || '@you'
+        },
+        settings: settings, tweets: tweets
+      };
+      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'MyX_backup_' + new Date().toISOString().slice(0, 10) + '.json';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      showToast('バックアップを書き出しました');
+    }
+    function normalizeImportedTweet(raw) {
+      if (!raw || typeof raw !== 'object') return null;
+      const text = typeof raw.text === 'string' ? raw.text : '';
+      const images = Array.isArray(raw.images) ? raw.images.filter(s => typeof s === 'string') : [];
+      if (!text && !images.length) return null;
+      return {
+        text, images,
+        time: typeof raw.time === 'string' ? raw.time : '',
+        createdAt: typeof raw.createdAt === 'number' ? raw.createdAt : Date.now(),
+        userName: typeof raw.userName === 'string' ? raw.userName : currentUser.name,
+        userHandle: typeof raw.userHandle === 'string' ? raw.userHandle : currentUser.handle,
+        userAvatar: typeof raw.userAvatar === 'string' ? raw.userAvatar : '',
+        parentId: typeof raw.parentId === 'number' ? raw.parentId : null,
+        likeCount: raw.likeCount || 0, retweetCount: raw.retweetCount || 0, replyCount: 0,
+        isLiked: !!raw.isLiked, isRetweeted: !!raw.isRetweeted, isBookmarked: !!raw.isBookmarked,
+        views: raw.views || 1, retweetedAt: raw.retweetedAt || null
+      };
+    }
+    async function importData(file) {
+      let data;
+      try { data = JSON.parse(await file.text()); }
+      catch (e) { showToast('ファイルの読み込みに失敗しました'); return; }
+      if (!data || !Array.isArray(data.tweets)) { showToast('無効なバックアップファイルです'); return; }
+      const ok = await showConfirm(`バックアップから復元しますか？\n（同じつぶやきは自動でスキップされます）`, '復元する', false);
+      if (!ok) return;
+      if (data.localStorage) {
+        if (data.localStorage.myX_name) { localStorage.setItem('myX_name', data.localStorage.myX_name); currentUser.name = data.localStorage.myX_name; }
+        if (data.localStorage.myX_handle) { localStorage.setItem('myX_handle', data.localStorage.myX_handle); currentUser.handle = data.localStorage.myX_handle; }
+      }
+      if (Array.isArray(data.settings)) {
+        for (const s of data.settings) {
+          if (s && typeof s.key === 'string') await idbReq('settings', 'readwrite', st => st.put(s));
+        }
+      }
+      const idMap = new Map();
+      const inserted = [];
+      let added = 0, skipped = 0;
+      for (const raw of data.tweets) {
+        const t = normalizeImportedTweet(raw);
+        if (!t) { skipped++; continue; }
+        const oldId = typeof raw.id === 'number' ? raw.id : null;
+        if (oldId != null) {
+          const existing = getTweet(oldId);
+          if (existing && existing.createdAt === t.createdAt && existing.text === t.text) { idMap.set(oldId, oldId); skipped++; continue; }
+          if (!existing && !idMap.has(oldId)) {
+            t.id = oldId;
+            await idbPutTweet(t);
+            idMap.set(oldId, oldId);
+            allTweets.push(t); inserted.push(t); added++;
+            continue;
+          }
+        }
+        const newId = await idbAddTweet(t);
+        t.id = newId;
+        if (oldId != null) idMap.set(oldId, newId);
+        allTweets.push(t); inserted.push(t); added++;
+      }
+      for (const t of inserted) {
+        if (t.parentId != null) {
+          const mapped = idMap.has(t.parentId) ? idMap.get(t.parentId) : (getTweet(t.parentId) ? t.parentId : null);
+          if (mapped !== t.parentId) { t.parentId = mapped; await idbPutTweet(t); }
+        }
+      }
+      const av = await idbGetSetting('userAvatar');
+      if (av && typeof av.value === 'string') currentUser.avatar = av.value;
+      initProfileUI();
+      renderAllAvatars();
+      renderCurrentView();
+      showToast(`${added}件を取り込みました（重複${skipped}件スキップ）`);
+    }
+
+    /* ---------- イベント（委譲で一括） ---------- */
+    function closeAllMenus(exceptId) {
+      document.querySelectorAll('.dropdown-menu.show').forEach(m => {
+        if (exceptId == null || m.id !== 'menu-' + exceptId) m.classList.remove('show');
+      });
+    }
+    document.addEventListener('click', async (e) => {
+      const actionEl = e.target.closest('[data-action]');
+      if (!actionEl) {
+        closeAllMenus(null);
+        const card = e.target.closest('.tweet-card');
+        if (card && card.dataset.cardId) openDetail(Number(card.dataset.cardId));
+        return;
+      }
+      const action = actionEl.dataset.action;
+      const id = actionEl.dataset.id != null ? Number(actionEl.dataset.id) : null;
+      switch (action) {
+        case 'go-home': switchTab('home', 'ホーム'); break;
+        case 'tab': switchTab(actionEl.dataset.tab, actionEl.dataset.title); break;
+        case 'submit-tweet': await submitTweet(); break;
+        case 'pick-images': document.getElementById(actionEl.dataset.kind + 'FileInput').click(); break;
+        case 'remove-image': pendingImages[actionEl.dataset.kind].splice(Number(actionEl.dataset.index), 1); renderPreview(actionEl.dataset.kind); break;
+        case 'menu': {
+          const menu = document.getElementById('menu-' + id);
+          const willShow = !menu.classList.contains('show');
+          closeAllMenus(null);
+          if (willShow) menu.classList.add('show');
+          break;
+        }
+        case 'edit': closeAllMenus(null); openEdit(id); break;
+        case 'delete': closeAllMenus(null); await deleteTweetFlow(id); break;
+        case 'reply': openReply(id); break;
+        case 'close-reply': closeReply(); break;
+        case 'submit-reply': await submitReply(); break;
+        case 'close-edit': closeEdit(); break;
+        case 'submit-edit': await submitEdit(); break;
+        case 'like': await toggleField(id, 'isLiked', 'likeCount'); break;
+        case 'retweet': await toggleField(id, 'isRetweeted', 'retweetCount', t => { t.retweetedAt = t.isRetweeted ? Date.now() : null; }); break;
+        case 'bookmark': await toggleField(id, 'isBookmarked', null); break;
+        case 'share': {
+          const t = getTweet(id);
+          if (t && navigator.clipboard) {
+            try { await navigator.clipboard.writeText(t.text || ''); showToast('つぶやき本文をコピーしました'); }
+            catch (err) { showToast('コピーできませんでした'); }
+          }
+          break;
+        }
+        case 'hashtag':
+          activeTag = actionEl.dataset.tag;
+          switchTab('tags', 'タグ');
+          break;
+        case 'tag-pill': {
+          const tag = actionEl.dataset.tag;
+          activeTag = (activeTag === tag) ? '' : tag;
+          renderTags();
+          break;
+        }
+        case 'image': {
+          const img = actionEl;
+          document.getElementById('imageModalImg').src = img.src;
+          document.getElementById('imageModal').classList.add('show');
+          break;
+        }
+        case 'close-image': document.getElementById('imageModal').classList.remove('show'); break;
+        case 'media-item': openDetail(id); break;
+        case 'close-detail': closeDetail(); break;
+        case 'pick-avatar': document.getElementById('avatarFileInput').click(); break;
+        case 'export': await exportData(); break;
+        case 'import': document.getElementById('importFileInput').click(); break;
+      }
+      if (!['menu'].includes(action)) closeAllMenus(action === 'menu' ? id : null);
+    });
+    document.getElementById('detailModal').addEventListener('click', (e) => {
+      if (e.target.id === 'detailModal') closeDetail();
+    });
+    document.getElementById('tweetFileInput').addEventListener('change', async (e) => { await handleImageFiles('tweet', e.target.files); e.target.value = ''; });
+    document.getElementById('replyFileInput').addEventListener('change', async (e) => { await handleImageFiles('reply', e.target.files); e.target.value = ''; });
+    document.getElementById('editFileInput').addEventListener('change', async (e) => { await handleImageFiles('edit', e.target.files); e.target.value = ''; });
+    document.getElementById('avatarFileInput').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      e.target.value = '';
+      if (!file) return;
+      try {
+        const dataUrl = await squareAvatarFile(file);
+        currentUser.avatar = dataUrl;
+        await idbPutSetting('userAvatar', dataUrl);
+        renderAllAvatars();
+        showToast('アバターを変更しました');
+      } catch (err) { console.error(err); showToast('画像を読み込めませんでした'); }
+    });
+    document.getElementById('importFileInput').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      e.target.value = '';
+      if (file) await importData(file);
+    });
+    let searchTimer = null;
+    document.getElementById('searchInput').addEventListener('input', () => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(renderSearch, 150);
+    });
+    document.getElementById('settingName').addEventListener('input', saveProfile);
+    document.getElementById('settingHandle').addEventListener('input', saveProfile);
     function saveProfile() {
       currentUser.name = document.getElementById('settingName').value || '自分';
       currentUser.handle = document.getElementById('settingHandle').value || '@you';
-      
       document.getElementById('displayProfileName').textContent = currentUser.name;
       document.getElementById('displayProfileHandle').textContent = currentUser.handle;
-
       localStorage.setItem('myX_name', currentUser.name);
       localStorage.setItem('myX_handle', currentUser.handle);
     }
 
-    function saveAvatarToIDB(dataUrl) {
-      const tx = db.transaction(['settings'], 'readwrite');
-      const store = tx.objectStore('settings');
-      store.put({ key: 'userAvatar', value: dataUrl });
-    }
-
-    /* バックアップ（書き出し）と復元（読み込み） */
-    function exportData() {
-      if (!db) return;
-      const tx1 = db.transaction(['tweets'], 'readonly');
-      const store1 = tx1.objectStore('tweets');
-      const req1 = store1.getAll();
-
-      req1.onsuccess = function() {
-        const tweets = req1.result;
-        const tx2 = db.transaction(['settings'], 'readonly');
-        const store2 = tx2.objectStore('settings');
-        const req2 = store2.getAll();
-
-        req2.onsuccess = function() {
-          const settings = req2.result;
-          const backupData = {
-            version: '1.0',
-            exportedAt: new Date().toISOString(),
-            localStorage: {
-              myX_name: localStorage.getItem('myX_name') || '自分',
-              myX_handle: localStorage.getItem('myX_handle') || '@you'
-            },
-            settings: settings,
-            tweets: tweets
-          };
-
-          const jsonStr = JSON.stringify(backupData, null, 2);
-          const blob = new Blob([jsonStr], { type: 'application/json' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          const dateStr = new Date().toISOString().slice(0, 10);
-          a.href = url;
-          a.download = `MyX_backup_${dateStr}.json`;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
-        };
-      };
-    }
-
-    function triggerImportData() {
-      document.getElementById('importFileInput').click();
-    }
-
-    function importData(e) {
-      const file = e.target.files[0];
-      if (!file) return;
-
-      const reader = new FileReader();
-      reader.onload = function(evt) {
-        try {
-          const data = JSON.parse(evt.target.result);
-          if (!data.tweets || !Array.isArray(data.tweets)) {
-            alert('無効なバックアップファイルですわ。');
-            return;
-          }
-
-          if (!confirm('データを復元・統合しますか？')) {
-            e.target.value = '';
-            return;
-          }
-
-          if (data.localStorage) {
-            if (data.localStorage.myX_name) {
-              localStorage.setItem('myX_name', data.localStorage.myX_name);
-              currentUser.name = data.localStorage.myX_name;
-            }
-            if (data.localStorage.myX_handle) {
-              localStorage.setItem('myX_handle', data.localStorage.myX_handle);
-              currentUser.handle = data.localStorage.myX_handle;
-            }
-          }
-
-          const txSettings = db.transaction(['settings'], 'readwrite');
-          const storeSettings = txSettings.objectStore('settings');
-          if (data.settings && Array.isArray(data.settings)) {
-            data.settings.forEach(s => storeSettings.put(s));
-          }
-
-          const txTweets = db.transaction(['tweets'], 'readwrite');
-          const storeTweets = txTweets.objectStore('tweets');
-          
-          let importedCount = 0;
-          data.tweets.forEach(t => {
-            storeTweets.put(t);
-            importedCount++;
-          });
-
-          txTweets.oncomplete = function() {
-            alert(`データと設定を無事に復元いたしましたわ！`);
-            loadSavedAvatar();
-            loadSavedTagOrder();
-            initProfileUI();
-            refreshCurrentView();
-          };
-
-        } catch (err) {
-          alert('ファイルの読み込みに失敗いたしましたわ。');
-          console.error(err);
-        }
-        e.target.value = '';
-      };
-      reader.readAsText(file);
-    }
-
-    /* 画像選択・添付プレビューの処理 */
-    function triggerTweetImageSelect() {
-      document.getElementById('tweetFileInput').click();
-    }
-
-    function triggerReplyImageSelect() {
-      document.getElementById('replyFileInput').click();
-    }
-
-    function handleTweetImageSelect(e) {
-      const files = Array.from(e.target.files);
-      if (!files.length) return;
-
-      const remainingSlots = 4 - currentTweetImages.length;
-      const filesToProcess = files.slice(0, remainingSlots);
-
-      let loadedCount = 0;
-      filesToProcess.forEach(file => {
-        const reader = new FileReader();
-        reader.onload = function(evt) {
-          currentTweetImages.push(evt.target.result);
-          loadedCount++;
-          if (loadedCount === filesToProcess.length) {
-            renderTweetImagePreview();
-          }
-        };
-        reader.readAsDataURL(file);
-      });
-      e.target.value = '';
-    }
-
-    function handleReplyImageSelect(e) {
-      const files = Array.from(e.target.files);
-      if (!files.length) return;
-
-      const remainingSlots = 4 - currentReplyImages.length;
-      const filesToProcess = files.slice(0, remainingSlots);
-
-      let loadedCount = 0;
-      filesToProcess.forEach(file => {
-        const reader = new FileReader();
-        reader.onload = function(evt) {
-          currentReplyImages.push(evt.target.result);
-          loadedCount++;
-          if (loadedCount === filesToProcess.length) {
-            renderReplyImagePreview();
-          }
-        };
-        reader.readAsDataURL(file);
-      });
-      e.target.value = '';
-    }
-
-    function renderTweetImagePreview() {
-      const container = document.getElementById('tweetImagePreviewArea');
-      if (currentTweetImages.length === 0) {
-        container.style.display = 'none';
-        container.innerHTML = '';
-        return;
+    /* ---------- 起動 ---------- */
+    (async function init() {
+      try {
+        db = await openDB();
+        allTweets = (await idbGetAllTweets()) || [];
+        const av = await idbGetSetting('userAvatar');
+        if (av && typeof av.value === 'string') currentUser.avatar = av.value;
+      } catch (err) {
+        console.error(err);
+        showToast('データベースを開けませんでした');
       }
-      container.style.display = 'block';
-      container.innerHTML = `
-        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
-          ${currentTweetImages.map((imgSrc, idx) => `
-            <div class="image-preview-container" style="position:relative;">
-              <img src="${imgSrc}" style="max-height:100px; border-radius:12px;">
-              <button class="btn-remove-preview" onclick="removeTweetImage(${idx})">×</button>
-            </div>
-          `).join('')}
-        </div>
-      `;
-    }
-
-    function renderReplyImagePreview() {
-      const container = document.getElementById('replyImagePreviewArea');
-      if (currentReplyImages.length === 0) {
-        container.style.display = 'none';
-        container.innerHTML = '';
-        return;
-      }
-      container.style.display = 'block';
-      container.innerHTML = `
-        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
-          ${currentReplyImages.map((imgSrc, idx) => `
-            <div class="image-preview-container" style="position:relative;">
-              <img src="${imgSrc}" style="max-height:100px; border-radius:12px;">
-              <button class="btn-remove-preview" onclick="removeReplyImage(${idx})">×</button>
-            </div>
-          `).join('')}
-        </div>
-      `;
-    }
-
-    function removeTweetImage(index) {
-      currentTweetImages.splice(index, 1);
-      renderTweetImagePreview();
-    }
-
-    function removeReplyImage(index) {
-      currentReplyImages.splice(index, 1);
-      renderReplyImagePreview();
-    }
-
-    function addTweet() {
-      const textarea = document.getElementById('tweetInput');
-      const text = textarea.value.trim();
-      if (!text && currentTweetImages.length === 0) return;
-
-      const now = new Date();
-      const timeStr = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
-
-      const tweetData = {
-        text: text,
-        images: currentTweetImages,
-        time: timeStr,
-        createdAt: now.getTime(),
-        userName: currentUser.name,
-        userHandle: currentUser.handle,
-        userAvatar: currentUser.avatar,
-        parentId: null,
-        likeCount: 0,
-        retweetCount: 0,
-        replyCount: 0,
-        isLiked: false,
-        isRetweeted: false,
-        isBookmarked: false,
-        views: 1,
-        retweetedAt: null
-      };
-
-      const tx = db.transaction(['tweets'], 'readwrite');
-      const store = tx.objectStore('tweets');
-      const addRequest = store.add(tweetData);
-
-      addRequest.onsuccess = function(e) {
-        textarea.value = '';
-        currentTweetImages = [];
-        renderTweetImagePreview();
-        loadTweets();
-      };
-    }
-
-    function loadTweets() {
-      const timeline = document.getElementById('timeline');
-      timeline.innerHTML = '';
-
-      const tx = db.transaction(['tweets'], 'readonly');
-      const store = tx.objectStore('tweets');
-      const getAllRequest = store.getAll();
-
-      getAllRequest.onsuccess = function() {
-        const tweets = getAllRequest.result;
-
-        const replyMap = {};
-        tweets.forEach(t => {
-          if (t.parentId) {
-            replyMap[t.parentId] = (replyMap[t.parentId] || 0) + 1;
-          }
-        });
-        tweets.forEach(t => {
-          t.replyCount = replyMap[t.id] || 0;
-        });
-
-        const parentTweets = tweets.filter(t => !t.parentId);
-
-        parentTweets.sort((a, b) => {
-          const timeA = a.isRetweeted && a.retweetedAt ? a.retweetedAt : a.createdAt;
-          const timeB = b.isRetweeted && b.retweetedAt ? b.retweetedAt : b.createdAt;
-          return timeB - timeA;
-        });
-
-        parentTweets.forEach(parent => {
-          const wrapper = document.createElement('div');
-          wrapper.className = 'tweet-card-wrapper';
-
-          if (parent.isRetweeted) {
-            const rtLabel = document.createElement('div');
-            rtLabel.className = 'retweet-header-label';
-            rtLabel.innerHTML = `<svg viewBox="0 0 24 24"><path d="M4.5 3.88l4.42 4.42-1.41 1.41L5.5 7.71V15c0 1.66 1.34 3 3 3h7v2h-7c-2.76 0-5-2.24-5-5V7.71L1.49 9.71.08 8.3 4.5 3.88zM19.5 20.12l-4.42-4.42 1.41-1.41 2.01 2.01V9c0-1.66-1.34-3-3-3h-7V4h7c2.76 0 5 2.24 5 5v7.3l2.01-2.01 1.41 1.41-4.42 4.42z"/></svg> 自分がリポストしました`;
-            wrapper.appendChild(rtLabel);
-          }
-
-          const childReplies = tweets.filter(t => t.parentId === parent.id).sort((a, b) => a.createdAt - b.createdAt);
-          const hasChildren = childReplies.length > 0;
-
-          wrapper.appendChild(createTweetCard(parent, hasChildren));
-
-          childReplies.forEach((child, index) => {
-            const isLast = index === childReplies.length - 1;
-            wrapper.appendChild(createTweetCard(child, !isLast));
-          });
-
-          timeline.appendChild(wrapper);
-        });
-      };
-    }
-
-    function createTweetCard(tweet, hasThreadLine, isMainTarget = false) {
-      const card = document.createElement('div');
-      card.className = `tweet-card ${isMainTarget ? 'main-target-tweet' : ''}`;
-      card.dataset.id = tweet.id;
-      card.onclick = () => openDetailModal(tweet.id);
-      
-      const name = tweet.userName || currentUser.name;
-      const handle = tweet.userHandle || currentUser.handle;
-      const avatarHTML = getAvatarHTML(tweet.userAvatar);
-      const formattedText = formatTweetText(tweet.text);
-      const displayDateStr = formatTweetDate(tweet.createdAt, tweet.time);
-
-      const likeClass = tweet.isLiked ? 'liked' : '';
-      const rtClass = tweet.isRetweeted ? 'retweeted' : '';
-      const bmClass = tweet.isBookmarked ? 'bookmarked' : '';
-
-      const imgs = tweet.images || (tweet.image ? [tweet.image] : []);
-      let imageHTML = '';
-
-      if (imgs.length > 0) {
-        const gridCols = imgs.length === 1 ? '1fr' : '1fr 1fr';
-        imageHTML = `
-          <div class="tweet-attached-image-grid" style="display:grid; grid-template-columns:${gridCols}; gap:4px; margin-top:10px; border-radius:16px; overflow:hidden;">
-            ${imgs.map(img => `
-              <img src="${img}" style="width:100\%; max-height:200px; object-fit:cover; cursor:pointer;" onclick="openImageModal(event, '${img}')">
-            `).join('')}
-          </div>
-        `;
-      }
-
-      card.innerHTML = `
-        <div class="avatar-column">
-          <div class="avatar">${avatarHTML}</div>
-          ${hasThreadLine ? '<div class="thread-line"></div>' : ''}
-        </div>
-        <div class="tweet-content">
-          <div class="tweet-header">
-            <span class="user-name">${escapeHtml(name)}</span>
-            <span class="user-handle">${escapeHtml(handle)}</span>
-            <span class="tweet-time">· ${displayDateStr}</span>
-            <div class="menu-container">
-              <button class="btn-menu" onclick="event.stopPropagation(); toggleMenu(event, ${tweet.id})">
-                <svg viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
-              </button>
-              <div class="dropdown-menu" id="menu-${tweet.id}">
-                <div class="dropdown-item" onclick="event.stopPropagation(); deleteTweet(${tweet.id})">
-                  <svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
-                  削除
-                </div>
-              </div>
-            </div>
-          </div>
-          ${formattedText ? `<div class="tweet-text">${formattedText}</div>` : ''}
-          ${imageHTML}
-
-          <div class="tweet-action-bar">
-            <button class="action-btn" onclick="event.stopPropagation(); openReplyModal(${tweet.id})">
-              <svg viewBox="0 0 24 24"><path d="M1.751 10c0-4.42 3.584-8 8.005-8h4.366c4.49 0 8.129 3.64 8.129 8.13 0 2.96-1.607 5.59-4 7.01v3.58c0 .53-.58.86-1.03.58l-3.23-1.94c-.74.17-1.52.26-2.33.26h-1.93c-4.42 0-8.005-3.58-8.005-8z"/></svg>
-              <span>${tweet.replyCount || ''}</span>
-            </button>
-            <button class="action-btn ${rtClass}" onclick="event.stopPropagation(); toggleRetweet(${tweet.id})">
-              <svg viewBox="0 0 24 24"><path d="M4.5 3.88l4.42 4.42-1.41 1.41L5.5 7.71V15c0 1.66 1.34 3 3 3h7v2h-7c-2.76 0-5-2.24-5-5V7.71L1.49 9.71.08 8.3 4.5 3.88zM19.5 20.12l-4.42-4.42 1.41-1.41 2.01 2.01V9c0-1.66-1.34-3-3-3h-7V4h7c2.76 0 5 2.24 5 5v7.3l2.01-2.01 1.41 1.41-4.42 4.42z"/></svg>
-              <span>${tweet.retweetCount || ''}</span>
-            </button>
-            <button class="action-btn ${likeClass}" onclick="event.stopPropagation(); toggleLike(${tweet.id})">
-              <svg viewBox="0 0 24 24"><path d="M12 21.638h-.014C9.403 21.59 1.95 14.851 1.95 8.478 1.95 5.172 4.628 2.5 7.934 2.5c1.882 0 3.639.879 4.766 2.309C13.827 3.379 15.584 2.5 17.466 2.5c3.306 0 5.984 2.672 5.984 5.978 0 6.373-7.453 13.112-10.036 13.16H12z"/></svg>
-              <span>${tweet.likeCount || ''}</span>
-            </button>
-            <button class="action-btn" onclick="event.stopPropagation();">
-              <svg viewBox="0 0 24 24"><path d="M8.75 21V3h2v18h-2zM18.75 21V8.5h2V21h-2zM3.75 21v-6h2v6h-2zM13.75 21v-11h2v11h-2z"/></svg>
-              <span>${tweet.views || 1}</span>
-            </button>
-            <button class="action-btn ${bmClass}" onclick="event.stopPropagation(); toggleBookmark(${tweet.id})">
-              <svg viewBox="0 0 24 24"><path d="M4 4.5C4 3.12 5.119 2 6.5 2h11C18.881 2 20 3.12 20 4.5v16.86c0 .58-.62.95-1.12.65L12 17.8l-6.88 4.21c-.5.3-.12-.07-1.12-.65V4.5z"/></svg>
-            </button>
-            <button class="action-btn" onclick="event.stopPropagation(); shareTweet('${escapeHtml(tweet.text)}')">
-              <svg viewBox="0 0 24 24"><path d="M12 2.59l5.7 5.7-1.41 1.42L13 6.41V16h-2V6.41L7.71 9.71 6.3 8.29 12 2.59zM21 15v5c0 1.1-.9 2-2 2H5c-1.1 0-2-.9-2-2v-5h2v5h14v-5h2z"/></svg>
-            </button>
-          </div>
-        </div>
-      `;
-      return card;
-    }
-
-    function formatTweetText(text) {
-      if (!text) return '';
-      const escaped = escapeHtml(text);
-      return escaped.replace(/#([^\s\u3000]+)/g, function(match, tagName) {
-        return `<span class="hashtag" onclick="clickHashtag(event, '${tagName}')">#${tagName}</span>`;
-      });
-    }
-
-    function clickHashtag(event, tagName) {
-      event.stopPropagation();
-      activeSelectedTag = tagName;
-      const tagNavBtn = document.querySelectorAll('.nav-item')[3];
-      switchTab('tags', 'タグ', tagNavBtn);
-    }
-
-    function toggleLike(id) {
-      const tx = db.transaction(['tweets'], 'readwrite');
-      const store = tx.objectStore('tweets');
-      const req = store.get(id);
-      req.onsuccess = function() {
-        const t = req.result;
-        if (!t) return;
-        t.isLiked = !t.isLiked;
-        t.likeCount = t.isLiked ? (t.likeCount || 0) + 1 : Math.max(0, (t.likeCount || 1) - 1);
-        store.put(t);
-        tx.oncomplete = () => refreshCurrentView();
-      };
-    }
-
-    function toggleRetweet(id) {
-      const tx = db.transaction(['tweets'], 'readwrite');
-      const store = tx.objectStore('tweets');
-      const req = store.get(id);
-      req.onsuccess = function() {
-        const t = req.result;
-        if (!t) return;
-        t.isRetweeted = !t.isRetweeted;
-        t.retweetCount = t.isRetweeted ? (t.retweetCount || 0) + 1 : Math.max(0, (t.retweetCount || 1) - 1);
-        t.retweetedAt = t.isRetweeted ? Date.now() : null;
-        store.put(t);
-        tx.oncomplete = () => refreshCurrentView();
-      };
-    }
-
-    function toggleBookmark(id) {
-      const tx = db.transaction(['tweets'], 'readwrite');
-      const store = tx.objectStore('tweets');
-      const req = store.get(id);
-      req.onsuccess = function() {
-        const t = req.result;
-        if (!t) return;
-        t.isBookmarked = !t.isBookmarked;
-        store.put(t);
-        tx.oncomplete = () => refreshCurrentView();
-      };
-    }
-
-    function refreshCurrentView() {
-      if (document.getElementById('detailModal').classList.contains('show')) {
-        const activeDetailId = parseInt(document.querySelector('.tweet-card.main-target-tweet')?.dataset.id);
-        if (activeDetailId) openDetailModal(activeDetailId);
-      }
-      if (document.getElementById('view-calendar').classList.contains('active')) {
-        renderCalendarTimeline();
-      } else if (document.getElementById('view-tags').classList.contains('active')) {
-        renderTagsView();
-      } else if (document.getElementById('view-media').classList.contains('active')) {
-        renderMediaView();
-      } else if (document.getElementById('view-search').classList.contains('active')) {
-        performSearch();
-      } else {
-        loadTweets();
-      }
-    }
-
-    function shareTweet(text) {
-      if (navigator.clipboard) {
-        navigator.clipboard.writeText(text);
-        alert('つぶやき本文をコピーしましたわ！');
-      }
-    }
-
-    function openReplyModal(id) {
-      const tx = db.transaction(['tweets'], 'readonly');
-      const store = tx.objectStore('tweets');
-      const req = store.get(id);
-      req.onsuccess = function() {
-        activeReplyTargetTweet = req.result;
-        if (!activeReplyTargetTweet) return;
-
-        document.getElementById('replyTargetName').textContent = activeReplyTargetTweet.userName || currentUser.name;
-        document.getElementById('replyTargetHandle').textContent = activeReplyTargetTweet.userHandle || currentUser.handle;
-        document.getElementById('replyTargetText').textContent = activeReplyTargetTweet.text;
-        document.getElementById('replyTargetAvatar').innerHTML = getAvatarHTML(activeReplyTargetTweet.userAvatar);
-
-        document.getElementById('replyInput').value = '';
-        currentReplyImages = [];
-        renderReplyImagePreview();
-        document.getElementById('replyModal').classList.add('show');
-      };
-    }
-
-    function closeReplyModal() {
-      document.getElementById('replyModal').classList.remove('show');
-      activeReplyTargetTweet = null;
-      currentReplyImages = [];
-      renderReplyImagePreview();
-    }
-
-    function submitReply() {
-      const text = document.getElementById('replyInput').value.trim();
-      if (!text && currentReplyImages.length === 0) return;
-      if (!activeReplyTargetTweet) return;
-
-      const now = new Date();
-      const timeStr = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
-
-      const replyData = {
-        text: text,
-        images: currentReplyImages,
-        time: timeStr,
-        createdAt: now.getTime(),
-        userName: currentUser.name,
-        userHandle: currentUser.handle,
-        userAvatar: currentUser.avatar,
-        parentId: activeReplyTargetTweet.id,
-        likeCount: 0,
-        retweetCount: 0,
-        replyCount: 0,
-        isLiked: false,
-        isRetweeted: false,
-        isBookmarked: false,
-        views: 1
-      };
-
-      const tx = db.transaction(['tweets'], 'readwrite');
-      const store = tx.objectStore('tweets');
-      store.add(replyData);
-
-      tx.oncomplete = function() {
-        closeReplyModal();
-        refreshCurrentView();
-      };
-    }
-
-    /* カレンダー画面のロジック */
-    let allCalendarTweets = [];
-
-    function renderCalendarView() {
-      if (!db) return;
-
-      const tx = db.transaction(['tweets'], 'readonly');
-      const store = tx.objectStore('tweets');
-      const getAllReq = store.getAll();
-
-      getAllReq.onsuccess = function() {
-        allCalendarTweets = getAllReq.result;
-        drawCalendar();
-      };
-    }
-
-    function changeCalMonth(delta) {
-      calCurrentMonth += delta;
-      if (calCurrentMonth < 0) {
-        calCurrentMonth = 11;
-        calCurrentYear--;
-      } else if (calCurrentMonth > 11) {
-        calCurrentMonth = 0;
-        calCurrentYear++;
-      }
-      drawCalendar();
-    }
-
-    function drawCalendar() {
-      const year = calCurrentYear;
-      const month = calCurrentMonth;
-
-      document.getElementById('calDisplayMonth').textContent = `${year}年 ${month + 1}月`;
-      document.getElementById('calMonthLabel').textContent = `${year}年${month + 1}月のつぶやき`;
-
-      const tweetCountByDate = {};
-      let monthTotal = 0;
-
-      allCalendarTweets.forEach(t => {
-        const d = new Date(t.createdAt);
-        if (d.getFullYear() === year && d.getMonth() === month) {
-          monthTotal++;
-          const yyyy = d.getFullYear();
-          const mm = String(d.getMonth() + 1).padStart(2, '0');
-          const dd = String(d.getDate()).padStart(2, '0');
-          const key = `${yyyy}-${mm}-${dd}`;
-          tweetCountByDate[key] = (tweetCountByDate[key] || 0) + 1;
-        }
-      });
-
-      document.getElementById('calTotalCount').textContent = monthTotal;
-
-      const grid = document.getElementById('calendarGrid');
-      grid.innerHTML = '';
-
-      const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
-      weekdays.forEach(w => {
-        const el = document.createElement('div');
-        el.className = 'cal-weekday';
-        el.textContent = w;
-        grid.appendChild(el);
-      });
-
-      const firstDay = new Date(year, month, 1).getDay();
-      const daysInMonth = new Date(year, month + 1, 0).getDate();
-
-      for (let i = 0; i < firstDay; i++) {
-        const empty = document.createElement('div');
-        empty.className = 'cal-day-cell empty';
-        grid.appendChild(empty);
-      }
-
-      const today = new Date();
-      const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-
-      if (!calSelectedDateStr) {
-        calSelectedDateStr = todayStr;
-      }
-
-      for (let day = 1; day <= daysInMonth; day++) {
-        const dayStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-        const count = tweetCountByDate[dayStr] || 0;
-
-        const cell = document.createElement('div');
-        let classes = 'cal-day-cell';
-        if (count > 0) classes += ' has-tweets';
-        if (dayStr === calSelectedDateStr) classes += ' selected';
-        cell.className = classes;
-
-        cell.innerHTML = `
-          <span class="cal-day-number">${day}</span>
-          ${count > 0 ? '<div class="cal-day-badge"></div>' : ''}
-        `;
-
-        cell.onclick = () => {
-          calSelectedDateStr = dayStr;
-          drawCalendar();
-        };
-
-        grid.appendChild(cell);
-      }
-
-      renderCalendarTimeline();
-    }
-
-    function renderCalendarTimeline() {
-      const container = document.getElementById('calendarTimeline');
-      container.innerHTML = '';
-
-      if (!calSelectedDateStr) return;
-
-      const parts = calSelectedDateStr.split('-');
-      document.getElementById('selectedDateTitle').textContent = `${parts[0]}年${parseInt(parts[1])}月${parseInt(parts[2])}日のつぶやき`;
-
-      const dayTweets = allCalendarTweets.filter(t => {
-        const d = new Date(t.createdAt);
-        const yyyy = d.getFullYear();
-        const mm = String(d.getMonth() + 1).padStart(2, '0');
-        const dd = String(d.getDate()).padStart(2, '0');
-        return `${yyyy}-${mm}-${dd}` === calSelectedDateStr;
-      });
-
-      if (dayTweets.length === 0) {
-        container.innerHTML = `
-          <div class="empty-state">
-            <svg viewBox="0 0 24 24"><path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zm0-12H5V6h14v2z"/></svg>
-            <div>この日のつぶやきはありませんわ</div>
-          </div>`;
-      } else {
-        dayTweets.sort((a, b) => b.createdAt - a.createdAt);
-        dayTweets.forEach(t => {
-          container.appendChild(createTweetCard(t, false));
-        });
-      }
-    }
-
-    /* 検索処理 */
-    function performSearch() {
-      const query = document.getElementById('searchInput').value.trim().toLowerCase();
-      const resultsContainer = document.getElementById('searchResults');
-      resultsContainer.innerHTML = '';
-
-      if (!query) return;
-      if (!db) return;
-
-      const tx = db.transaction(['tweets'], 'readonly');
-      const store = tx.objectStore('tweets');
-      const getAllReq = store.getAll();
-
-      getAllReq.onsuccess = function() {
-        let tweets = getAllReq.result;
-        tweets.sort((a, b) => b.createdAt - a.createdAt);
-
-        const filtered = tweets.filter(t => t.text.toLowerCase().includes(query));
-
-        if (filtered.length === 0) {
-          resultsContainer.innerHTML = `
-            <div class="empty-state">
-              <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
-              <div>該当するつぶやきが見つかりませんでしたわ</div>
-            </div>`;
-        } else {
-          filtered.forEach(t => {
-            resultsContainer.appendChild(createTweetCard(t, false));
-          });
-        }
-      };
-    }
-
-    /* タグ画面の描写処理 */
-    function renderTagsView() {
-      if (!db) return;
-
-      const tx = db.transaction(['tweets'], 'readonly');
-      const store = tx.objectStore('tweets');
-      const getAllReq = store.getAll();
-
-      getAllReq.onsuccess = function() {
-        const tweets = getAllReq.result;
-        tweets.sort((a, b) => b.createdAt - a.createdAt);
-
-        currentTagCounts = {};
-        const foundTagsInPosts = [];
-        tweets.forEach(t => {
-          const matches = t.text.match(/#([^\s\u3000]+)/g);
-          if (matches) {
-            matches.forEach(rawTag => {
-              const tag = rawTag.substring(1);
-              if (!currentTagCounts[tag]) {
-                currentTagCounts[tag] = 0;
-                foundTagsInPosts.push(tag);
-              }
-              currentTagCounts[tag]++;
-            });
-          }
-        });
-
-        const tagListBar = document.getElementById('tagListBar');
-        tagListBar.innerHTML = '';
-
-        const allFoundTags = Object.keys(currentTagCounts);
-
-        if (allFoundTags.length === 0) {
-          document.querySelector('.tag-header-area').style.display = 'none';
-          document.getElementById('tagTimeline').innerHTML = `
-            <div class="empty-state">
-              <svg viewBox="0 0 24 24"><path d="M20 10V8h-4V4h-2v4h-4V4H8v4H4v2h4v4H4v2h4v4h2v-4h4v4h2v-4h4v-2h-4v-4h4zm-6 4h-4v-4h4v4z"/></svg>
-              <div>まだ #タグ 付きの投稿がありませんわ</div>
-            </div>`;
-          return;
-        }
-
-        document.querySelector('.tag-header-area').style.display = 'flex';
-
-        foundTagsInPosts.forEach(tag => {
-          if (!customTagOrder.includes(tag)) {
-            customTagOrder.push(tag);
-          }
-        });
-
-        customTagOrder = customTagOrder.filter(tag => currentTagCounts[tag] > 0);
-        saveTagOrderToIDB();
-
-        if (!activeSelectedTag || !currentTagCounts[activeSelectedTag]) {
-          activeSelectedTag = customTagOrder[0];
-        }
-
-        customTagOrder.forEach((tag) => {
-          const pill = document.createElement('div');
-          pill.className = `tag-pill ${tag === activeSelectedTag ? 'active' : ''}`;
-          pill.onclick = () => {
-            activeSelectedTag = tag;
-            renderTagsView();
-          };
-
-          pill.innerHTML = `
-            <span class="tag-pill-name">#${escapeHtml(tag)}</span>
-            <span class="tag-pill-count">${currentTagCounts[tag]}</span>
-          `;
-          tagListBar.appendChild(pill);
-        });
-
-        const tagTimeline = document.getElementById('tagTimeline');
-        tagTimeline.innerHTML = '';
-
-        const filtered = tweets.filter(t => t.text.includes(`#${activeSelectedTag}`));
-        filtered.forEach(t => {
-          tagTimeline.appendChild(createTweetCard(t, false));
-        });
-      };
-    }
-
-    /* メディア画面の描写処理 */
-    function renderMediaView() {
-      if (!db) return;
-
-      const tx = db.transaction(['tweets'], 'readonly');
-      const store = tx.objectStore('tweets');
-      const getAllReq = store.getAll();
-
-      getAllReq.onsuccess = function() {
-        const tweets = getAllReq.result;
-        tweets.sort((a, b) => b.createdAt - a.createdAt);
-
-        const grid = document.getElementById('mediaGrid');
-        grid.innerHTML = '';
-
-        let allMediaItems = [];
-        tweets.forEach(t => {
-          const imgs = t.images || (t.image ? [t.image] : []);
-          imgs.forEach(img => {
-            allMediaItems.push({ img: img, tweetId: t.id });
-          });
-        });
-
-        if (allMediaItems.length === 0) {
-          grid.innerHTML = `
-            <div class="empty-state" style="grid-column: span 3;">
-              <svg viewBox="0 0 24 24"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
-              <div>まだ画像付きの投稿がありませんわ</div>
-            </div>`;
-          return;
-        }
-
-        allMediaItems.forEach(itemData => {
-          const item = document.createElement('div');
-          item.className = 'media-grid-item';
-          item.innerHTML = `<img src="${itemData.img}" alt="media">`;
-          item.onclick = () => openDetailModal(itemData.tweetId);
-          grid.appendChild(item);
-        });
-      };
-    }
-
-    /* タグ管理モーダル処理 */
-    function openTagManageModal() {
-      const modal = document.getElementById('tagManageModal');
-      const listContainer = document.getElementById('tagModalList');
-      listContainer.innerHTML = '';
-
-      customTagOrder.forEach((tag, index) => {
-        const item = document.createElement('div');
-        item.className = 'tag-modal-item';
-        item.draggable = true;
-        item.dataset.index = index;
-
-        item.innerHTML = `
-          <div class="tag-modal-item-left">
-            <span class="tag-modal-handle">
-              <svg viewBox="0 0 24 24"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>
-            </span>
-            <span class="tag-modal-name">#${escapeHtml(tag)}</span>
-          </div>
-          <span class="tag-modal-count">${currentTagCounts[tag]}件</span>
-        `;
-
-        bindVerticalDragEvents(item);
-        listContainer.appendChild(item);
-      });
-
-      modal.classList.add('show');
-    }
-
-    function closeTagManageModal() {
-      document.getElementById('tagManageModal').classList.remove('show');
-      renderTagsView();
-    }
-
-    let verticalDraggedIndex = null;
-
-    function bindVerticalDragEvents(item) {
-      item.addEventListener('dragstart', (e) => {
-        verticalDraggedIndex = parseInt(item.dataset.index);
-        item.classList.add('dragging');
-        e.dataTransfer.effectAllowed = 'move';
-      });
-
-      item.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-      });
-
-      item.addEventListener('drop', (e) => {
-        e.preventDefault();
-        const targetIndex = parseInt(item.dataset.index);
-        if (verticalDraggedIndex !== null && verticalDraggedIndex !== targetIndex) {
-          reorderTagsModal(verticalDraggedIndex, targetIndex);
-        }
-      });
-
-      item.addEventListener('dragend', () => {
-        item.classList.remove('dragging');
-        verticalDraggedIndex = null;
-      });
-
-      let touchItem = null;
-
-      item.addEventListener('touchstart', (e) => {
-        if (e.touches.length === 1) {
-          touchItem = item;
-          verticalDraggedIndex = parseInt(item.dataset.index);
-        }
-      }, { passive: true });
-
-      item.addEventListener('touchmove', (e) => {
-        if (!touchItem) return;
-        const currentY = e.touches[0].clientY;
-        const targetEl = document.elementFromPoint(e.touches[0].clientX, currentY);
-        if (targetEl) {
-          const targetItem = targetEl.closest('.tag-modal-item');
-          if (targetItem && targetItem !== touchItem) {
-            const targetIndex = parseInt(targetItem.dataset.index);
-            if (verticalDraggedIndex !== null && targetIndex !== undefined && verticalDraggedIndex !== targetIndex) {
-              reorderTagsModal(verticalDraggedIndex, targetIndex);
-              verticalDraggedIndex = targetIndex;
-            }
-          }
-        }
-      }, { passive: true });
-
-      item.addEventListener('touchend', () => {
-        touchItem = null;
-        verticalDraggedIndex = null;
-      });
-    }
-
-    function reorderTagsModal(fromIndex, toIndex) {
-      const movedTag = customTagOrder.splice(fromIndex, 1)[0];
-      customTagOrder.splice(toIndex, 0, movedTag);
-      saveTagOrderToIDB();
-      openTagManageModal();
-    }
-
-    function toggleMenu(event, id) {
-      event.stopPropagation();
-      const targetMenu = document.getElementById(`menu-${id}`);
-      const isShow = targetMenu.classList.contains('show');
-      document.querySelectorAll('.dropdown-menu').forEach(menu => menu.classList.remove('show'));
-      if (!isShow) {
-        targetMenu.classList.add('show');
-      }
-    }
-
-    document.addEventListener('click', function() {
-      document.querySelectorAll('.dropdown-menu').forEach(menu => menu.classList.remove('show'));
-    });
-
-    function deleteTweet(id) {
-      if (!confirm('この投稿を削除しますか？')) return;
-
-      const tx = db.transaction(['tweets'], 'readwrite');
-      const store = tx.objectStore('tweets');
-      store.delete(id);
-
-      tx.oncomplete = function() {
-        refreshCurrentView();
-      };
-    }
-
-    function escapeHtml(str) {
-      return str.replace(/[&<>"']/g, function(m) {
-        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m];
-      });
-    }
-
-    /* アバター画像選択・トリミング機能 */
-    let loadedImage = null;
-    let cropScale = 1;
-    let cropPosX = 0;
-    let cropPosY = 0;
-    let isDraggingCrop = false;
-    let dragStartX = 0;
-    let dragStartY = 0;
-
-    function triggerAvatarSelect() {
-      document.getElementById('avatarFileInput').click();
-    }
-
-    function handleImageSelect(event) {
-      const file = event.target.files[0];
-      if (!file) return;
-
-      const reader = new FileReader();
-      reader.onload = function(e) {
-        loadedImage = new Image();
-        loadedImage.onload = function() {
-          setupCropCanvas();
-          document.getElementById('cropModal').classList.add('show');
-        };
-        loadedImage.src = e.target.result;
-      };
-      reader.readAsDataURL(file);
-      event.target.value = '';
-    }
-
-    function setupCropCanvas() {
-      cropScale = 1;
-      document.getElementById('zoomSlider').value = 1;
-      
-      const canvas = document.getElementById('cropCanvas');
-      const initialScale = Math.max(canvas.width / loadedImage.width, canvas.height / loadedImage.height);
-      cropPosX = (canvas.width - loadedImage.width * initialScale) / 2;
-      cropPosY = (canvas.height - loadedImage.height * initialScale) / 2;
-
-      drawCrop();
-      bindCropEvents();
-    }
-
-    function drawCrop() {
-      const canvas = document.getElementById('cropCanvas');
-      const ctx = canvas.getContext('2d');
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      if (!loadedImage) return;
-
-      const baseScale = Math.max(canvas.width / loadedImage.width, canvas.height / loadedImage.height);
-      const currentScale = baseScale * cropScale;
-      const w = loadedImage.width * currentScale;
-      const h = loadedImage.height * currentScale;
-
-      ctx.drawImage(loadedImage, cropPosX, cropPosY, w, h);
-
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-      ctx.beginPath();
-      ctx.rect(0, 0, canvas.width, canvas.height);
-      ctx.arc(canvas.width / 2, canvas.height / 2, 110, 0, Math.PI * 2, true);
-      ctx.fill();
-
-      ctx.strokeStyle = '#1d9bf0';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(canvas.width / 2, canvas.height / 2, 110, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-
-    function onZoomChange() {
-      cropScale = parseFloat(document.getElementById('zoomSlider').value);
-      drawCrop();
-    }
-
-    function bindCropEvents() {
-      const canvas = document.getElementById('cropCanvas');
-
-      const getPos = (e) => {
-        if (e.touches && e.touches.length > 0) {
-          return { x: e.touches[0].clientX, y: e.touches[0].clientY };
-        }
-        return { x: e.clientX, y: e.clientY };
-      };
-
-      const startDrag = (e) => {
-        isDraggingCrop = true;
-        const pos = getPos(e);
-        dragStartX = pos.x - cropPosX;
-        dragStartY = pos.y - cropPosY;
-      };
-
-      const moveDrag = (e) => {
-        if (!isDraggingCrop) return;
-        if (e.cancelable) e.preventDefault();
-        const pos = getPos(e);
-        cropPosX = pos.x - dragStartX;
-        cropPosY = pos.y - dragStartY;
-        drawCrop();
-      };
-
-      const endDrag = () => { isDraggingCrop = false; };
-
-      canvas.onmousedown = startDrag;
-      window.onmousemove = moveDrag;
-      window.onmouseup = endDrag;
-
-      canvas.addEventListener('touchstart', (e) => {
-        if (e.touches.length === 1) {
-          startDrag(e);
-        }
-      }, { passive: false });
-
-      canvas.addEventListener('touchmove', (e) => {
-        if (isDraggingCrop && e.touches.length === 1) {
-          moveDrag(e);
-        }
-      }, { passive: false });
-
-      canvas.addEventListener('touchend', endDrag);
-    }
-
-    function closeCropModal() {
-      document.getElementById('cropModal').classList.remove('show');
-    }
-
-    function saveCroppedAvatar() {
-      const outputCanvas = document.createElement('canvas');
-      outputCanvas.width = 200;
-      outputCanvas.height = 200;
-      const ctx = outputCanvas.getContext('2d');
-
-      const srcCanvas = document.getElementById('cropCanvas');
-      ctx.beginPath();
-      ctx.arc(100, 100, 100, 0, Math.PI * 2);
-      ctx.clip();
-
-      ctx.drawImage(
-        srcCanvas,
-        30, 30, 220, 220,
-        0, 0, 200, 200
-      );
-
-      const croppedDataUrl = outputCanvas.toDataURL('image/png');
-      currentUser.avatar = croppedDataUrl;
-
-      saveAvatarToIDB(croppedDataUrl);
+      initProfileUI();
       renderAllAvatars();
-      closeCropModal();
-    }
-
-    /* 画像拡大モーダル制御 */
-    function openImageModal(event, src) {
-      if (event) event.stopPropagation();
-      document.getElementById('imageModalImg').src = src;
-      document.getElementById('imageModal').classList.add('show');
-    }
-
-    function closeImageModal() {
-      document.getElementById('imageModal').classList.remove('show');
-    }
-
-    /* --------------------------------------------------------------------- */
-    /* ★ リワーク：スレッド全階層表示ロジック (祖先＆子孫・再帰展開) ★ */
-    /* --------------------------------------------------------------------- */
-
-    // 1. 親・祖父母など「祖先ツイート」を最古順（ルート〜親）で辿る関数
-    function getAncestors(targetId, allTweets) {
-      const ancestors = [];
-      let current = allTweets.find(t => t.id === targetId);
-      while (current && current.parentId) {
-        const parent = allTweets.find(t => t.id === current.parentId);
-        if (parent) {
-          ancestors.unshift(parent); // ルートから順に並ぶよう先頭へ追加
-          current = parent;
-        } else {
-          break;
-        }
-      }
-      return ancestors;
-    }
-
-    // 2. 子リプライ・孫リプライなどの「子孫スレッド」を再帰的にレンダリングする関数
-    function renderDescendantThread(parentId, allTweets, container, level = 0) {
-      const replies = allTweets.filter(t => t.parentId === parentId).sort((a, b) => a.createdAt - b.createdAt);
-      
-      replies.forEach((reply) => {
-        const hasChildren = allTweets.some(t => t.parentId === reply.id);
-        const wrapper = document.createElement('div');
-        wrapper.className = 'nested-reply-wrapper';
-        
-        // 階層（インデント）を少しずらしてスレッド感を表現
-        if (level > 0) {
-          wrapper.style.paddingLeft = `${Math.min(level * 14, 42)}px`;
-          wrapper.style.borderLeft = '2px solid rgba(255, 255, 255, 0.08)';
-        }
-
-        const card = createTweetCard(reply, hasChildren);
-        wrapper.appendChild(card);
-        container.appendChild(wrapper);
-
-        // 孫・ひ孫リプライが存在する場合、再帰的に読み込んで展開
-        if (hasChildren) {
-          renderDescendantThread(reply.id, allTweets, container, level + 1);
-        }
-      });
-    }
-
-    // 3. スレッド表示モーダルの構築・開く処理
-    function openDetailModal(id) {
-      const tx = db.transaction(['tweets'], 'readonly');
-      const store = tx.objectStore('tweets');
-      const getAllReq = store.getAll();
-
-      getAllReq.onsuccess = function() {
-        const tweets = getAllReq.result;
-        const target = tweets.find(t => t.id === id);
-        if (!target) return;
-
-        const content = document.getElementById('detailModalContent');
-        content.innerHTML = '';
-
-        // ① 上の「祖先スレッド（親、祖父など）」を順番に描画
-        const ancestors = getAncestors(target.id, tweets);
-        ancestors.forEach((anc) => {
-          content.appendChild(createTweetCard(anc, true)); // 縦スレッド線ありで繋ぐ
-        });
-
-        // ② タップされた「メインツイート」の描画（強調表示）
-        const hasDirectChildren = tweets.some(t => t.parentId === target.id);
-        const mainCard = createTweetCard(target, hasDirectChildren, true);
-        content.appendChild(mainCard);
-
-        // ③ 下の「子孫スレッド（リプライ・孫リプライなど）」を再帰的に全て描画
-        const descendantsContainer = document.createElement('div');
-        descendantsContainer.style.marginTop = '8px';
-        renderDescendantThread(target.id, tweets, descendantsContainer, 0);
-        content.appendChild(descendantsContainer);
-
-        document.getElementById('detailModal').classList.add('show');
-      };
-    }
-
-    function closeDetailModal(event) {
-      if (event.target.id === 'detailModal') {
-        document.getElementById('detailModal').classList.remove('show');
-      }
-    }
-
-    function closeDetailModalDirect() {
-      document.getElementById('detailModal').classList.remove('show');
-    }
-
-    // Service Workerの登録
+      renderHome();
+    })();
     if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js');
-      });
+      window.addEventListener('load', () => { navigator.serviceWorker.register('./sw.js'); });
     }
   </script>
 </body>
