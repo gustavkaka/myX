@@ -118,7 +118,22 @@
       background-color: rgba(29,155,240,0.07); border-color: rgba(29,155,240,0.45);
       padding-top: 16px; padding-bottom: 16px;
     }
-    .tweet-card.main-target-tweet .tweet-text { font-size: 17px; line-height: 1.6; }
+    .tweet-card.main-target-tweet .tweet-text { font-size: var(--tweet-font-main, 17px); line-height: 1.6; }
+    /* 投稿直後のカードの出現 */
+    @keyframes cardIn { from { opacity: 0; transform: translateY(-10px) scale(0.98); } to { opacity: 1; transform: none; } }
+    .tweet-card-wrapper.card-enter { animation: cardIn 0.32s ease both; }
+
+    /* 過去のつぶやき（メモリーカード） */
+    .memory-wrap { margin: 12px 12px 0; }
+    .memory-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 6px 6px 14px; color: #1d9bf0; font-size: 13px; font-weight: 700;
+    }
+    .memory-close {
+      background: none; border: none; color: #71767b; font-size: 15px; cursor: pointer;
+      padding: 4px 8px; border-radius: 9999px; line-height: 1;
+    }
+    .memory-wrap .tweet-card { border-color: rgba(29,155,240,0.4); background-color: rgba(29,155,240,0.05); }
     .avatar-column { display: flex; flex-direction: column; align-items: center; flex-shrink: 0; }
     .thread-line { width: 2px; background-color: #333639; flex: 1; min-height: 12px; margin-top: 4px; }
     .tweet-body { flex: 1; min-width: 0; }
@@ -126,7 +141,9 @@
     .user-name { font-weight: 700; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .user-handle, .tweet-date { color: #71767b; font-size: 14px; white-space: nowrap; }
     .tweet-date { margin-left: auto; font-size: 12px; }
-    .tweet-text { font-size: 15px; line-height: 1.5; margin-top: 2px; white-space: pre-wrap; word-break: break-word; }
+    .tweet-text { font-size: var(--tweet-font, 15px); line-height: 1.55; margin-top: 2px; white-space: pre-wrap; word-break: break-word; }
+    body.fs-s { --tweet-font: 14px; --tweet-font-main: 16px; }
+    body.fs-l { --tweet-font: 17px; --tweet-font-main: 19px; }
     .hashtag { color: #1d9bf0; cursor: pointer; }
     .hashtag:hover { text-decoration: underline; }
     .tweet-images { display: grid; gap: 4px; margin-top: 10px; border-radius: 16px; overflow: hidden; }
@@ -262,6 +279,9 @@
       transform: translateY(28px);
     }
     .modal.screen.show .modal-container { transform: none; }
+    /* 詳細は右からスライドイン（画面遷移らしく） */
+    #detailModal .modal-container { transform: translateX(56px); }
+    #detailModal.show .modal-container { transform: none; }
     .modal-header {
       display: flex; justify-content: space-between; align-items: center;
       border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px; margin-bottom: 8px;
@@ -271,7 +291,54 @@
     .reply-target-line { width: 2px; background-color: #333639; flex: 1; min-height: 10px; margin-top: 4px; }
     .reply-target-text { font-size: 14px; color: #cfd3d6; margin-top: 2px; white-space: pre-wrap; word-break: break-word; }
     .image-modal { align-items: center; background-color: rgba(0,0,0,0.92); }
-    .image-modal img { max-width: 96vw; max-height: 92vh; border-radius: 8px; }
+    .image-modal img { max-width: 96vw; max-height: 92vh; border-radius: 8px; transition: transform 0.22s ease; cursor: zoom-in; }
+    .image-modal img.zoomed { transform: scale(1.9); cursor: zoom-out; }
+    .viewer-counter {
+      position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+      color: #fff; font-size: 13px; font-weight: 700; background-color: rgba(15,20,25,0.7);
+      padding: 5px 12px; border-radius: 9999px; backdrop-filter: blur(4px);
+    }
+    .viewer-nav {
+      position: absolute; top: 50%; transform: translateY(-50%);
+      width: 44px; height: 44px; border-radius: 50%; border: none; cursor: pointer;
+      background-color: rgba(15,20,25,0.7); color: #fff; font-size: 26px; line-height: 1;
+      display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px);
+    }
+    .viewer-nav.prev { left: 10px; }
+    .viewer-nav.next { right: 10px; }
+    .viewer-close {
+      position: absolute; top: 10px; right: 10px; width: 40px; height: 40px;
+      border-radius: 50%; border: none; cursor: pointer;
+      background-color: rgba(15,20,25,0.7); color: #fff; font-size: 16px;
+      display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px);
+    }
+
+    /* 長押しアクションシート */
+    .action-sheet-box { text-align: left; padding: 14px 12px calc(18px + env(safe-area-inset-bottom)); }
+    .sheet-preview {
+      font-size: 13px; color: #71767b; line-height: 1.5; padding: 4px 12px 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.08); margin-bottom: 6px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .sheet-item {
+      display: block; width: 100%; text-align: left; background: none; border: none;
+      color: #e7e9ea; font-size: 15px; padding: 13px 12px; border-radius: 12px; cursor: pointer;
+    }
+    .sheet-item:active { background-color: rgba(255,255,255,0.06); }
+    .sheet-item.danger { color: #f4212e; }
+    .sheet-item.cancel { text-align: center; font-weight: 700; border: 1px solid rgba(255,255,255,0.25); margin-top: 8px; border-radius: 9999px; }
+
+    /* 設定：セグメント切替と統計 */
+    .segmented { display: flex; background-color: #202327; border-radius: 9999px; padding: 3px; gap: 3px; }
+    .segmented-btn {
+      flex: 1; background: none; border: none; color: #71767b; font-size: 13px; font-weight: 700;
+      padding: 8px 0; border-radius: 9999px; cursor: pointer; transition: background-color 0.15s, color 0.15s;
+    }
+    .segmented-btn.active { background-color: #1d9bf0; color: #fff; }
+    .stats-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+    .stats-label { font-size: 14px; color: #cfd3d6; }
+    .stats-value { font-size: 15px; font-weight: 800; white-space: nowrap; }
+    .stats-value small { font-size: 12px; color: #71767b; font-weight: 400; }
 
     /* 確認シート＆トースト */
     .confirm-sheet {
@@ -342,6 +409,7 @@
 
     <!-- 1. タイムライン -->
     <div id="view-home" class="view active">
+      <div id="memorySlot"></div>
       <div class="timeline" id="timeline"></div>
     </div>
 
@@ -398,11 +466,30 @@
           </div>
         </div>
 
+        <div class="settings-section-title">表示</div>
+        <div class="settings-list">
+          <div class="settings-item">
+            <label class="settings-item-label">つぶやきの文字サイズ</label>
+            <div class="segmented" id="fontSizeControl">
+              <button class="segmented-btn" data-action="font-size" data-size="s">小さめ</button>
+              <button class="segmented-btn" data-action="font-size" data-size="m">標準</button>
+              <button class="segmented-btn" data-action="font-size" data-size="l">大きめ</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section-title">あなたの記録</div>
+        <div class="settings-list" id="statsList"></div>
+
         <div class="settings-section-title">データ管理</div>
         <div class="settings-list">
           <div class="settings-item-btn" data-action="export">
             <div><span class="settings-item-title">データをバックアップ (JSON保存)</span><span class="settings-item-sub">つぶやきや設定をファイルに書き出します</span></div>
             <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+          </div>
+          <div class="settings-item-btn" data-action="export-text">
+            <div><span class="settings-item-title">日記として書き出す (テキスト保存)</span><span class="settings-item-sub">全つぶやきを日付順の読み物として書き出します</span></div>
+            <svg viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
           </div>
           <div class="settings-item-btn" data-action="import">
             <div><span class="settings-item-title">データを復元 (JSON読み込み)</span><span class="settings-item-sub">保存したファイルからデータを読み込みます（重複は自動でスキップ）</span></div>
@@ -499,9 +586,26 @@
       </div>
     </div>
 
-    <!-- 画像拡大モーダル -->
+    <!-- 画像ビューア（前後移動・カウンター・拡大つき） -->
     <div class="modal image-modal" id="imageModal" data-action="close-image">
-      <img id="imageModalImg" src="" alt="enlarged">
+      <img id="imageModalImg" src="" alt="enlarged" data-action="viewer-zoom">
+      <div class="viewer-counter" id="viewerCounter"></div>
+      <button class="viewer-nav prev" data-action="viewer-prev" aria-label="前の画像">‹</button>
+      <button class="viewer-nav next" data-action="viewer-next" aria-label="次の画像">›</button>
+      <button class="viewer-close" data-action="close-image" aria-label="閉じる">✕</button>
+    </div>
+
+    <!-- 長押しクイックアクションシート -->
+    <div class="confirm-sheet" id="actionSheet">
+      <div class="confirm-box action-sheet-box">
+        <div class="sheet-preview" id="sheetPreview"></div>
+        <button class="sheet-item" data-action="sheet-reply">返信する</button>
+        <button class="sheet-item" data-action="sheet-copy">本文をコピー</button>
+        <button class="sheet-item" data-action="sheet-bookmark" id="sheetBookmarkBtn">ブックマークする</button>
+        <button class="sheet-item" data-action="sheet-edit">編集する</button>
+        <button class="sheet-item danger" data-action="sheet-delete">削除する</button>
+        <button class="sheet-item cancel" data-action="sheet-close">キャンセル</button>
+      </div>
     </div>
 
     <!-- 詳細（スレッド）モーダル -->
@@ -564,6 +668,7 @@
     let activeEditId = null;
     let activeDetailId = null;
     let lastLikeAnimId = null;
+    let justPostedId = null;
     let draftReplyTargetId = null;
     const scrollMem = {};
     const pendingImages = { tweet: [], reply: [], edit: [] };
@@ -760,6 +865,7 @@
       const dateEl = document.createElement('span');
       dateEl.className = 'tweet-date';
       dateEl.textContent = formatTweetDate(tweet.createdAt, tweet.time, !!opts.main);
+      if (tweet.createdAt) { dateEl.dataset.ts = tweet.createdAt; dateEl.dataset.main = opts.main ? '1' : ''; }
       const menuWrap = document.createElement('div');
       menuWrap.className = 'menu-wrap';
       const menuBtn = document.createElement('button');
@@ -798,11 +904,13 @@
       if (Array.isArray(tweet.images) && tweet.images.length) {
         const grid = document.createElement('div');
         grid.className = 'tweet-images count-' + Math.min(tweet.images.length, 4);
-        tweet.images.slice(0, 4).forEach(src => {
+        tweet.images.slice(0, 4).forEach((src, idx) => {
           const img = document.createElement('img');
           img.src = src;
           img.alt = 'image';
           img.dataset.action = 'image';
+          img.dataset.tweetId = tweet.id;
+          img.dataset.idx = idx;
           grid.appendChild(img);
         });
         body.appendChild(grid);
@@ -831,6 +939,7 @@
 
     /* ---------- 描画 ---------- */
     function renderHome() {
+      renderMemory();
       const tl = document.getElementById('timeline');
       tl.textContent = '';
       const parents = allTweets.filter(t => !t.parentId);
@@ -842,7 +951,8 @@
       if (!parents.length) { tl.appendChild(emptyState('まだつぶやきがありません。\n右下の＋ボタンから、思ったことをそのまま放り込んでください。')); return; }
       parents.forEach(parent => {
         const wrapper = document.createElement('div');
-        wrapper.className = 'tweet-card-wrapper';
+        wrapper.className = 'tweet-card-wrapper' + (justPostedId === parent.id ? ' card-enter' : '');
+        if (justPostedId === parent.id) justPostedId = null;
         if (parent.isRetweeted) {
           const label = document.createElement('div');
           label.className = 'retweet-header-label';
@@ -937,6 +1047,7 @@
       else if (currentView === 'bookmarks') renderBookmarks();
       else if (currentView === 'tags') renderTags();
       else if (currentView === 'media') renderMedia();
+      else if (currentView === 'settings') renderStats();
       if (document.getElementById('detailModal').classList.contains('show') && activeDetailId != null) {
         if (getTweet(activeDetailId)) renderDetail(activeDetailId);
         else closeDetail();
@@ -1119,6 +1230,7 @@
       const data = buildTweetData(text, images, parentId);
       data.id = await idbAddTweet(data);
       allTweets.push(data);
+      if (!parentId) justPostedId = data.id;
       return data;
     }
     function openCompose() {
@@ -1144,6 +1256,7 @@
       renderPreview('tweet');
       closeCompose();
       renderCurrentView();
+      buzz(10);
       showToast('つぶやきました');
     }
     function openReply(id) {
@@ -1344,6 +1457,7 @@
       const actionEl = e.target.closest('[data-action]');
       if (!actionEl) {
         closeAllMenus(null);
+        if (Date.now() - longPressAt < 500) return;
         const card = e.target.closest('.tweet-card');
         if (card && card.dataset.cardId) openDetail(Number(card.dataset.cardId));
         return;
@@ -1375,7 +1489,7 @@
         case 'submit-reply': await submitReply(); break;
         case 'close-edit': closeEdit(); break;
         case 'submit-edit': await submitEdit(); break;
-        case 'like': await toggleField(id, 'isLiked', 'likeCount', t => { if (t.isLiked) lastLikeAnimId = t.id; }); break;
+        case 'like': await toggleField(id, 'isLiked', 'likeCount', t => { if (t.isLiked) { lastLikeAnimId = t.id; buzz(10); } }); break;
         case 'retweet': await toggleField(id, 'isRetweeted', 'retweetCount', t => { t.retweetedAt = t.isRetweeted ? Date.now() : null; }); break;
         case 'bookmark': await toggleField(id, 'isBookmarked', null); break;
         case 'share': {
@@ -1396,18 +1510,25 @@
           renderTags();
           break;
         }
-        case 'image': {
-          const img = actionEl;
-          document.getElementById('imageModalImg').src = img.src;
-          document.getElementById('imageModal').classList.add('show');
-          break;
-        }
-        case 'close-image': document.getElementById('imageModal').classList.remove('show'); break;
+        case 'image': openViewer(Number(actionEl.dataset.tweetId), Number(actionEl.dataset.idx || 0)); break;
+        case 'viewer-prev': stepViewer(-1); break;
+        case 'viewer-next': stepViewer(1); break;
+        case 'viewer-zoom': document.getElementById('imageModalImg').classList.toggle('zoomed'); break;
+        case 'close-image': closeViewer(); break;
         case 'media-item': openDetail(id); break;
         case 'close-detail': closeDetail(); break;
         case 'pick-avatar': document.getElementById('avatarFileInput').click(); break;
         case 'export': await exportData(); break;
+        case 'export-text': await exportTextData(); break;
+        case 'font-size': applyFontSize(actionEl.dataset.size); break;
         case 'import': document.getElementById('importFileInput').click(); break;
+        case 'memory-dismiss': dismissMemory(); break;
+        case 'sheet-close': closeActionSheet(); break;
+        case 'sheet-reply': { const sid = sheetTargetId; closeActionSheet(); if (sid != null) openReply(sid); break; }
+        case 'sheet-copy': { const sid = sheetTargetId; closeActionSheet(); if (sid != null) await copyTweetText(sid); break; }
+        case 'sheet-bookmark': { const sid = sheetTargetId; closeActionSheet(); if (sid != null) await toggleField(sid, 'isBookmarked', null); break; }
+        case 'sheet-edit': { const sid = sheetTargetId; closeActionSheet(); if (sid != null) openEdit(sid); break; }
+        case 'sheet-delete': { const sid = sheetTargetId; closeActionSheet(); if (sid != null) await deleteTweetFlow(sid); break; }
       }
       if (!['menu'].includes(action)) closeAllMenus(action === 'menu' ? id : null);
       syncScrollLock();
@@ -1474,6 +1595,7 @@
       }
       initProfileUI();
       renderAllAvatars();
+      applyFontSize(localStorage.getItem('myX_fontsize') || 'm');
       const draft = localStorage.getItem('myX_draft');
       if (draft) {
         const ta = document.getElementById('tweetInput');
@@ -1482,6 +1604,257 @@
       }
       renderHome();
     })();
+    /* ---------- v4の追加機能 ---------- */
+    /* 小さな触覚フィードバック（対応端末のみ） */
+    function buzz(ms) {
+      try { if (navigator.vibrate) navigator.vibrate(ms); } catch (e) { /* 非対応は無視 */ }
+    }
+    async function copyTweetText(id) {
+      const t = getTweet(id);
+      if (t && navigator.clipboard) {
+        try { await navigator.clipboard.writeText(t.text || ''); showToast('つぶやき本文をコピーしました'); }
+        catch (err) { showToast('コピーできませんでした'); }
+      }
+    }
+
+    /* 画像ビューア：同じつぶやきの画像を前後移動できる */
+    const viewer = { list: [], idx: 0 };
+    function openViewer(tweetId, idx) {
+      const t = getTweet(tweetId);
+      if (!t || !Array.isArray(t.images) || !t.images.length) return;
+      viewer.list = t.images.slice(0, 4);
+      viewer.idx = Math.min(Math.max(idx || 0, 0), viewer.list.length - 1);
+      updateViewer();
+      document.getElementById('imageModal').classList.add('show');
+      syncScrollLock();
+    }
+    function updateViewer() {
+      const img = document.getElementById('imageModalImg');
+      img.src = viewer.list[viewer.idx] || '';
+      img.classList.remove('zoomed');
+      const multi = viewer.list.length > 1;
+      document.getElementById('viewerCounter').textContent = multi ? `${viewer.idx + 1} / ${viewer.list.length}` : '';
+      document.querySelector('.viewer-nav.prev').style.display = multi ? 'flex' : 'none';
+      document.querySelector('.viewer-nav.next').style.display = multi ? 'flex' : 'none';
+    }
+    function stepViewer(d) {
+      if (!viewer.list.length) return;
+      viewer.idx = (viewer.idx + d + viewer.list.length) % viewer.list.length;
+      updateViewer();
+    }
+    function closeViewer() {
+      document.getElementById('imageModal').classList.remove('show');
+      document.getElementById('imageModalImg').classList.remove('zoomed');
+      syncScrollLock();
+    }
+    /* ビューア内のスワイプで前後移動 */
+    (() => {
+      const modal = document.getElementById('imageModal');
+      let sx = null;
+      modal.addEventListener('touchstart', (e) => { sx = e.changedTouches[0].clientX; }, { passive: true });
+      modal.addEventListener('touchend', (e) => {
+        if (sx == null) return;
+        const dx = e.changedTouches[0].clientX - sx;
+        sx = null;
+        if (document.getElementById('imageModalImg').classList.contains('zoomed')) return;
+        if (dx < -48) stepViewer(1);
+        else if (dx > 48) stepViewer(-1);
+      }, { passive: true });
+    })();
+
+    /* 長押しクイックアクションシート */
+    let sheetTargetId = null;
+    let longPressAt = 0;
+    function openActionSheet(id) {
+      const t = getTweet(id);
+      if (!t) return;
+      sheetTargetId = id;
+      longPressAt = Date.now();
+      const preview = document.getElementById('sheetPreview');
+      preview.textContent = (t.text || '（画像のつぶやき）').slice(0, 60);
+      document.getElementById('sheetBookmarkBtn').textContent = t.isBookmarked ? 'ブックマークを外す' : 'ブックマークする';
+      document.getElementById('actionSheet').classList.add('show');
+      syncScrollLock();
+      buzz(15);
+    }
+    function closeActionSheet() {
+      document.getElementById('actionSheet').classList.remove('show');
+      sheetTargetId = null;
+      syncScrollLock();
+    }
+    document.getElementById('actionSheet').addEventListener('click', (e) => {
+      if (e.target.id === 'actionSheet') closeActionSheet();
+    });
+    (() => {
+      let timer = null, startX = 0, startY = 0;
+      const cancel = () => { if (timer) { clearTimeout(timer); timer = null; } };
+      document.addEventListener('pointerdown', (e) => {
+        if (e.target.closest('[data-action], button, a, input, textarea, .modal, .confirm-sheet')) return;
+        const card = e.target.closest('.tweet-card');
+        if (!card || !card.dataset.cardId) return;
+        startX = e.clientX; startY = e.clientY;
+        const id = Number(card.dataset.cardId);
+        timer = setTimeout(() => { timer = null; openActionSheet(id); }, 550);
+      });
+      document.addEventListener('pointermove', (e) => {
+        if (timer && (Math.abs(e.clientX - startX) > 10 || Math.abs(e.clientY - startY) > 10)) cancel();
+      }, { passive: true });
+      document.addEventListener('pointerup', cancel);
+      document.addEventListener('pointercancel', cancel);
+      document.addEventListener('scroll', cancel, { passive: true });
+    })();
+
+    /* 過去のつぶやき（ホーム上部のメモリーカード） */
+    function memoryKeyOf(d) { return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`; }
+    function pickMemory() {
+      const now = new Date();
+      if (localStorage.getItem('myX_memory_dismissed') === memoryKeyOf(now)) return null;
+      const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+      const past = allTweets.filter(t => !t.parentId && t.createdAt && t.createdAt < startToday);
+      if (!past.length) return null;
+      const sameDay = past.filter(t => {
+        const d = new Date(t.createdAt);
+        return d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+      });
+      if (sameDay.length) {
+        const t = sameDay[sameDay.length - 1];
+        const years = now.getFullYear() - new Date(t.createdAt).getFullYear();
+        return { tweet: t, label: years > 0 ? `${years}年前の今日` : '去年の今日' };
+      }
+      const old = past.filter(t => startToday - t.createdAt > 30 * 86400000);
+      if (!old.length) return null;
+      const seed = now.getFullYear() * 372 + (now.getMonth() + 1) * 31 + now.getDate();
+      return { tweet: old[seed % old.length], label: '過去のつぶやき' };
+    }
+    function renderMemory() {
+      const slot = document.getElementById('memorySlot');
+      if (!slot) return;
+      slot.textContent = '';
+      const mem = pickMemory();
+      if (!mem) return;
+      const wrap = document.createElement('div');
+      wrap.className = 'memory-wrap';
+      const head = document.createElement('div');
+      head.className = 'memory-head';
+      const label = document.createElement('span');
+      label.textContent = '✦ ' + mem.label;
+      const close = document.createElement('button');
+      close.className = 'memory-close';
+      close.dataset.action = 'memory-dismiss';
+      close.textContent = '✕';
+      close.setAttribute('aria-label', '今日は閉じる');
+      head.appendChild(label);
+      head.appendChild(close);
+      wrap.appendChild(head);
+      wrap.appendChild(createTweetCard(mem.tweet, {}));
+      slot.appendChild(wrap);
+    }
+    function dismissMemory() {
+      localStorage.setItem('myX_memory_dismissed', memoryKeyOf(new Date()));
+      renderMemory();
+    }
+
+    /* 設定：あなたの記録 */
+    function statRow(label, valueHtml) {
+      const row = document.createElement('div');
+      row.className = 'settings-item stats-row';
+      const l = document.createElement('span');
+      l.className = 'stats-label';
+      l.textContent = label;
+      const v = document.createElement('span');
+      v.className = 'stats-value';
+      v.innerHTML = valueHtml;
+      row.appendChild(l);
+      row.appendChild(v);
+      return row;
+    }
+    async function renderStats() {
+      const list = document.getElementById('statsList');
+      if (!list) return;
+      list.textContent = '';
+      const now = new Date();
+      const total = allTweets.length;
+      const replies = allTweets.filter(t => t.parentId).length;
+      const thisMonth = allTweets.filter(t => {
+        const d = new Date(t.createdAt);
+        return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+      }).length;
+      const daySet = new Set(allTweets.map(t => memoryKeyOf(new Date(t.createdAt))));
+      let streak = 0;
+      const cursor = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      if (!daySet.has(memoryKeyOf(cursor))) cursor.setDate(cursor.getDate() - 1);
+      while (daySet.has(memoryKeyOf(cursor))) { streak++; cursor.setDate(cursor.getDate() - 1); }
+      const tagCounts = {};
+      allTweets.forEach(t => {
+        const found = String(t.text || '').match(/#([^\s#　]+)/g) || [];
+        found.forEach(tag => { tagCounts[tag] = (tagCounts[tag] || 0) + 1; });
+      });
+      const topTags = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]).slice(0, 3);
+      const imageCount = allTweets.reduce((n, t) => n + (Array.isArray(t.images) ? t.images.length : 0), 0);
+      list.appendChild(statRow('総つぶやき数', `${total} <small>件（うち返信 ${replies}）</small>`));
+      list.appendChild(statRow('今月のつぶやき', `${thisMonth} <small>件</small>`));
+      list.appendChild(statRow('連続つぶやき', `${streak} <small>日</small>`));
+      list.appendChild(statRow('記録した日数', `${daySet.size} <small>日</small>`));
+      list.appendChild(statRow('写真', `${imageCount} <small>枚</small>`));
+      list.appendChild(statRow('よく使うタグ', topTags.length ? topTags.map(([tag, c]) => `${tag} <small>×${c}</small>`).join('　') : '<small>まだありません</small>'));
+      const usageRow = statRow('保存容量', '<small>計測中…</small>');
+      list.appendChild(usageRow);
+      try {
+        if (navigator.storage && navigator.storage.estimate) {
+          const est = await navigator.storage.estimate();
+          const mb = est.usage ? (est.usage / 1048576) : 0;
+          usageRow.querySelector('.stats-value').textContent = mb >= 1 ? `${mb.toFixed(1)} MB` : `${Math.max(1, Math.round(mb * 1024))} KB`;
+        } else {
+          usageRow.querySelector('.stats-value').innerHTML = '<small>不明</small>';
+        }
+      } catch (e) {
+        usageRow.querySelector('.stats-value').innerHTML = '<small>不明</small>';
+      }
+    }
+
+    /* 日記としてのテキスト書き出し */
+    async function exportTextData() {
+      const tweets = [...allTweets].sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+      const lines = [`My X 日記（${tweets.length}件）`, ''];
+      let lastDay = '';
+      for (const t of tweets) {
+        const abs = formatTweetDate(t.createdAt, t.time, true);
+        const day = abs.slice(0, 10);
+        if (day !== lastDay) { lines.push('', `■ ${day}`); lastDay = day; }
+        lines.push(`［${abs.slice(11)}］${t.parentId ? '（返信）' : ''} ${t.text || ''}`);
+        if (Array.isArray(t.images) && t.images.length) lines.push(`　（画像 ${t.images.length}枚）`);
+      }
+      const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'MyX_diary_' + new Date().toISOString().slice(0, 10) + '.txt';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      showToast('日記をテキストで書き出しました');
+    }
+
+    /* 文字サイズ設定 */
+    function applyFontSize(size) {
+      const s = ['s', 'm', 'l'].includes(size) ? size : 'm';
+      localStorage.setItem('myX_fontsize', s);
+      document.body.classList.toggle('fs-s', s === 's');
+      document.body.classList.toggle('fs-l', s === 'l');
+      document.querySelectorAll('#fontSizeControl .segmented-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.size === s);
+      });
+    }
+
+    /* 相対時刻の自動更新（1分ごと） */
+    setInterval(() => {
+      document.querySelectorAll('.tweet-date[data-ts]').forEach(el => {
+        const ts = Number(el.dataset.ts);
+        if (ts) el.textContent = formatTweetDate(ts, '', el.dataset.main === '1');
+      });
+    }, 60000);
+
     /* ---------- アプリらしい挙動（v3） ---------- */
     /* 下へスクロールしたらヘッダーと下部ナビを隠し、上へ戻したら出す（本家アプリ式） */
     let lastScrollY = 0;
