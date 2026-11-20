@@ -1,6 +1,6 @@
 // My X Service Worker（歌詞アプリ方式に統一：版管理キャッシュ＋必須ファイルの先読み）
-// ★ index.html を更新して配る時は、ここの版を myx-v2, myx-v3 と上げていきます
-const CACHE_NAME = 'myx-v1';
+// ★ index.html を更新して配る時は、ここの版を myx-v3, myx-v4 と上げていきます
+const CACHE_NAME = 'myx-v2';
 
 // アプリの動作に必須のもの：インストール時に先読みして、初回からオフラインでも開けるようにする
 const CORE_ASSETS = [
