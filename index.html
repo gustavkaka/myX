@@ -9,18 +9,18 @@
   <title>My X</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-    html { overscroll-behavior-y: none; }
+    html { overscroll-behavior: none; }
     body {
       background-color: #000000; color: #e7e9ea;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       display: flex; justify-content: center; min-height: 100vh;
-      touch-action: manipulation;
+      touch-action: manipulation; overscroll-behavior: none;
+      -webkit-touch-callout: none;
     }
     button, .nav-item, .tag-pill, header { -webkit-user-select: none; user-select: none; }
     button { touch-action: manipulation; }
     .container {
       width: 100%; max-width: 600px;
-      border-left: 1px solid rgba(255,255,255,0.1); border-right: 1px solid rgba(255,255,255,0.1);
       min-height: 100vh; display: flex; flex-direction: column;
       padding-bottom: 60px; position: relative;
     }
@@ -28,7 +28,11 @@
       position: sticky; top: 0; background-color: rgba(0,0,0,0.85);
       backdrop-filter: blur(12px); border-bottom: 1px solid rgba(255,255,255,0.1);
       padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; z-index: 10;
+      transition: transform 0.25s ease;
     }
+    /* スクロール中はヘッダーと下部ナビを隠して「固定物」を減らす */
+    body.chrome-hidden header { transform: translateY(-105%); }
+    body.chrome-hidden .bottom-nav { transform: translateX(-50%) translateY(115%); }
     header h1 { font-size: 18px; font-weight: 700; letter-spacing: -0.3px; cursor: pointer; }
     .avatar.header-avatar { width: 32px; height: 32px; cursor: pointer; }
     .header-spacer { width: 32px; flex-shrink: 0; }
@@ -92,22 +96,26 @@
       backdrop-filter: blur(4px); font-size: 14px; line-height: 1;
     }
 
-    /* ツイートカード */
-    .timeline { flex: 1; }
-    .tweet-card-wrapper { border-bottom: 1px solid rgba(255,255,255,0.1); position: relative; }
+    /* ツイートカード（歌詞アプリと同じ「浮いた部品」設計） */
+    .timeline { flex: 1; padding-top: 12px; }
+    .tweet-card-wrapper { position: relative; margin: 0 12px 12px; }
     .retweet-header-label {
-      padding: 8px 16px 0 48px; font-size: 13px; font-weight: 700; color: #71767b;
+      padding: 0 6px 6px 14px; font-size: 13px; font-weight: 700; color: #71767b;
       display: flex; align-items: center; gap: 6px;
     }
     .retweet-header-label svg { width: 14px; height: 14px; fill: currentColor; }
     .tweet-card {
-      padding: 12px 16px; display: flex; gap: 12px; position: relative;
+      padding: 12px 14px; display: flex; gap: 12px; position: relative;
+      background-color: #101214; border: 1px solid rgba(255,255,255,0.09);
+      border-radius: 18px; box-shadow: 0 2px 10px rgba(0,0,0,0.45);
       transition: background-color 0.2s; cursor: pointer;
+      -webkit-user-select: none; user-select: none;
     }
-    .tweet-card:hover { background-color: rgba(255,255,255,0.03); }
-    .tweet-card:active { background-color: rgba(255,255,255,0.06); }
+    .tweet-card:active { background-color: #17191d; }
+    #detailModalContent > .tweet-card { margin-bottom: 12px; }
+    .nested-reply-wrapper .tweet-card { margin-top: 10px; }
     .tweet-card.main-target-tweet {
-      background-color: rgba(29,155,240,0.05); border-left: 3px solid #1d9bf0;
+      background-color: rgba(29,155,240,0.07); border-color: rgba(29,155,240,0.45);
       padding-top: 16px; padding-bottom: 16px;
     }
     .tweet-card.main-target-tweet .tweet-text { font-size: 17px; line-height: 1.6; }
@@ -251,7 +259,6 @@
     .modal.screen { padding: 0; align-items: stretch; overflow-y: auto; }
     .modal.screen .modal-container {
       max-width: 600px; min-height: 100dvh; border-radius: 0; border: none;
-      border-left: 1px solid rgba(255,255,255,0.1); border-right: 1px solid rgba(255,255,255,0.1);
       transform: translateY(28px);
     }
     .modal.screen.show .modal-container { transform: none; }
@@ -301,6 +308,7 @@
       border-top: 1px solid rgba(255,255,255,0.1);
       display: flex; justify-content: space-around; align-items: center; z-index: 50;
       padding-bottom: env(safe-area-inset-bottom);
+      transition: transform 0.25s ease;
     }
     .nav-item { background: none; border: none; cursor: pointer; padding: 10px; border-radius: 9999px; position: relative; }
     .nav-item svg { width: 24px; height: 24px; fill: #71767b; display: block; transition: transform 0.15s ease, fill 0.15s ease; }
@@ -605,11 +613,23 @@
     const idbPutSetting = (key, value) => idbReq('settings', 'readwrite', s => s.put({ key, value }));
 
     /* ---------- 小物 ---------- */
-    function formatTweetDate(timestamp, timeFallback) {
+    function formatTweetDate(timestamp, timeFallback, absolute) {
       if (!timestamp) return timeFallback || '';
       const d = new Date(timestamp);
       const p = (n) => String(n).padStart(2, '0');
-      return `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+      if (absolute) {
+        return `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+      }
+      /* 一覧は本家アプリ風の相対表示（絶対日時は詳細のメイン表示だけ） */
+      const now = new Date();
+      const diff = now - d;
+      if (diff < 60 * 1000) return '今';
+      if (diff < 60 * 60 * 1000) return Math.floor(diff / 60000) + '分前';
+      if (diff < 24 * 60 * 60 * 1000) return Math.floor(diff / 3600000) + '時間前';
+      const yest = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+      if (d.getFullYear() === yest.getFullYear() && d.getMonth() === yest.getMonth() && d.getDate() === yest.getDate()) return '昨日';
+      if (d.getFullYear() === now.getFullYear()) return `${d.getMonth() + 1}月${d.getDate()}日`;
+      return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
     }
     function getTweet(id) { return allTweets.find(t => t.id === id) || null; }
     function childrenOf(id) { return allTweets.filter(t => t.parentId === id).sort((a, b) => a.createdAt - b.createdAt); }
@@ -739,7 +759,7 @@
       handleEl.textContent = tweet.userHandle || currentUser.handle;
       const dateEl = document.createElement('span');
       dateEl.className = 'tweet-date';
-      dateEl.textContent = formatTweetDate(tweet.createdAt, tweet.time);
+      dateEl.textContent = formatTweetDate(tweet.createdAt, tweet.time, !!opts.main);
       const menuWrap = document.createElement('div');
       menuWrap.className = 'menu-wrap';
       const menuBtn = document.createElement('button');
@@ -924,6 +944,8 @@
     }
     function switchTab(tabId, title) {
       scrollMem[currentView] = window.scrollY;
+      document.body.classList.remove('chrome-hidden');
+      lastScrollY = 0;
       currentView = tabId;
       document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
       document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.tab === tabId));
@@ -1460,6 +1482,26 @@
       }
       renderHome();
     })();
+    /* ---------- アプリらしい挙動（v3） ---------- */
+    /* 下へスクロールしたらヘッダーと下部ナビを隠し、上へ戻したら出す（本家アプリ式） */
+    let lastScrollY = 0;
+    window.addEventListener('scroll', () => {
+      const y = window.scrollY || 0;
+      if (document.querySelector('.modal.show, .confirm-sheet.show')) {
+        document.body.classList.remove('chrome-hidden');
+        lastScrollY = y;
+        return;
+      }
+      if (y < 120) document.body.classList.remove('chrome-hidden');
+      else if (y > lastScrollY + 4) document.body.classList.add('chrome-hidden');
+      else if (y < lastScrollY - 4) document.body.classList.remove('chrome-hidden');
+      lastScrollY = y;
+    }, { passive: true });
+    /* 入力欄以外での長押しブラウザメニューを止める（Web由来の挙動の除去） */
+    document.addEventListener('contextmenu', (e) => {
+      if (!e.target.closest('textarea, input')) e.preventDefault();
+    });
+
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => { navigator.serviceWorker.register('./sw.js'); });
     }
